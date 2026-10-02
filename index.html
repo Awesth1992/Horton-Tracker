@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="da">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0a2430">
+  <meta name="description" content="Privat, krypteret anfaldsdagbog til Hortons hovedpine.">
+  <meta name="color-scheme" content="light">
+  <title>Horton Tracker</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon-192.png">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Gå til indhold</a>
+  <div class="app-shell">
+    <header class="topbar">
+      <button class="brand" data-view-target="dashboard" aria-label="Horton Tracker – gå til overblik">
+        <svg class="brand-mark" viewBox="0 0 48 48" aria-hidden="true"><path d="M7 25h8l4-13 8 25 5-12h9"/><circle cx="24" cy="24" r="21"/></svg>
+        <span><strong>HORTON</strong><small>TRACKER</small></span>
+      </button>
+      <div class="topbar-actions">
+        <span id="save-status" class="status-pill" aria-live="polite"><i></i> Lokal</span>
+        <button id="install-button" class="icon-button" hidden aria-label="Installér app" title="Installér app">⇩</button>
+        <button id="lock-button" class="icon-button" aria-label="Lås app" title="Lås app">⌁</button>
+      </div>
+    </header>
+
+    <aside class="rail" aria-label="Hovedmenu">
+      <nav>
+        <button class="nav-item active" data-view-target="dashboard"><span>◫</span>Overblik</button>
+        <button class="nav-item" data-view-target="entry"><span>＋</span>Nyt anfald</button>
+        <button class="nav-item" data-view-target="history"><span>≡</span>Historik</button>
+        <button class="nav-item" data-view-target="insights"><span>⌁</span>Indblik</button>
+        <button class="nav-item" data-view-target="backup"><span>↥</span>Backup</button>
+        <button class="nav-item" data-view-target="settings"><span>⚙</span>Indstillinger</button>
+      </nav>
+      <div class="privacy-stamp"><span>◆</span><div><strong>Krypteret lokalt</strong><small>Ingen serverkonto</small></div></div>
+    </aside>
+
+    <main id="main" tabindex="-1">
+      <section id="view-dashboard" class="view active" aria-labelledby="dashboard-title">
+        <div class="hero-grid">
+          <div>
+            <p class="eyebrow" id="today-label">I DAG</p>
+            <h1 id="dashboard-title">Dit mønster.<br><em>På dine præmisser.</em></h1>
+            <p class="lede">Registrér et anfald på få minutter. Dine helbredsdata bliver krypteret i denne browser.</p>
+            <button class="primary large" data-view-target="entry">Registrér nyt anfald <span>→</span></button>
+          </div>
+          <div class="pulse-card" aria-hidden="true">
+            <div class="pulse-line"><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
+            <div class="pulse-copy"><strong id="dashboard-count">0</strong><span>anfald<br>seneste 30 dage</span></div>
+          </div>
+        </div>
+        <div class="metric-grid">
+          <article class="metric"><span>Seneste anfald</span><strong id="metric-latest">—</strong><small id="metric-latest-note">Ingen registreringer endnu</small></article>
+          <article class="metric"><span>Gns. intensitet · 30 dage</span><strong id="metric-intensity">—</strong><small>skala 1–5</small></article>
+          <article class="metric"><span>Gns. varighed · 30 dage</span><strong id="metric-duration">—</strong><small>beregnet fra dine tider</small></article>
+        </div>
+        <section class="panel recent-panel">
+          <div class="panel-heading"><div><p class="eyebrow">SENESTE</p><h2>Registreringer</h2></div><button class="text-button" data-view-target="history">Se alle →</button></div>
+          <div id="recent-list" class="entry-list empty-state">Ingen anfald registreret endnu.</div>
+        </section>
+      </section>
+
+      <section id="view-entry" class="view" aria-labelledby="entry-title">
+        <div class="view-heading">
+          <div><p class="eyebrow" id="entry-kicker">NY REGISTRERING</p><h1 id="entry-title">Registrér anfald</h1></div>
+          <div class="step-meter"><span id="form-progress">0%</span><i><b id="form-progress-bar"></b></i></div>
+        </div>
+        <form id="attack-form" novalidate>
+          <input type="hidden" id="entry-id">
+          <div id="form-errors" class="error-summary" role="alert" tabindex="-1" hidden></div>
+
+          <fieldset class="form-card">
+            <legend><span>01</span>Tidspunkt</legend>
+            <div class="form-grid three">
+              <label>Dato for anfald <input id="attack-date" name="date" type="date" required></label>
+              <label>Starttidspunkt <input id="start-time" name="startTime" type="time" required></label>
+              <div>
+                <span class="label-text">Slut eller varighed</span>
+                <div class="segmented" role="group" aria-label="Vælg sluttid eller varighed">
+                  <button type="button" class="active" data-duration-mode="end">Sluttid</button>
+                  <button type="button" data-duration-mode="minutes">Minutter</button>
+                </div>
+                <input id="end-time" name="endTime" type="time" aria-label="Sluttidspunkt">
+                <input id="duration-input" name="durationInput" type="number" min="1" max="1440" inputmode="numeric" aria-label="Varighed i minutter" placeholder="fx 45" hidden>
+              </div>
+            </div>
+            <p id="duration-preview" class="calculated">Varighed beregnes automatisk</p>
+          </fieldset>
+
+          <fieldset class="form-card">
+            <legend><span>02</span>Smerte</legend>
+            <div class="field-block">
+              <p class="question">Hvilken side ramte smerten?</p>
+              <div class="choice-grid two" id="side-options">
+                <label class="choice"><input type="radio" name="side" value="Højre side"><span>Højre side</span></label>
+                <label class="choice"><input type="radio" name="side" value="Venstre side"><span>Venstre side</span></label>
+                <label class="choice"><input type="radio" name="side" value="Begge sider (Konstant)"><span>Begge sider <small>Konstant</small></span></label>
+                <label class="choice"><input type="radio" name="side" value="Begge sider (Skiftede undervejs)"><span>Begge sider <small>Skiftede undervejs</small></span></label>
+              </div>
+            </div>
+            <div class="field-block">
+              <p class="question">Smerteintensitet <small>Maksimal styrke under anfaldet</small></p>
+              <div class="intensity-scale" id="intensity-options">
+                <label><input type="radio" name="intensity" value="1" aria-label="1 - Skygge / murren (Begyndende tegn, ikke fuldt anfald)"><span><b>1</b><small>Skygge / murren</small></span></label>
+                <label><input type="radio" name="intensity" value="2" aria-label="2 - Mild (Kan udholdes uden akut medicin)"><span><b>2</b><small>Mild</small></span></label>
+                <label><input type="radio" name="intensity" value="3" aria-label="3 - Medium (Hæmmer mine aktiviteter)"><span><b>3</b><small>Medium</small></span></label>
+                <label><input type="radio" name="intensity" value="4" aria-label="4 - Kraftigt (Decideret, invaliderende anfald)"><span><b>4</b><small>Kraftigt</small></span></label>
+                <label><input type="radio" name="intensity" value="5" aria-label="5 - Maksimal / ubærlig smerte"><span><b>5</b><small>Maksimal / ubærlig</small></span></label>
+              </div>
+              <p id="intensity-description" class="calculated">Vælg den højeste intensitet under anfaldet.</p>
+            </div>
+          </fieldset>
+
+          <fieldset class="form-card">
+            <legend><span>03</span>Symptomer & søvn</legend>
+            <div class="field-block">
+              <p class="question">Hvilke symptomer oplevede du på den smertende side?</p>
+              <div class="choice-grid two check-grid" id="symptom-options"></div>
+            </div>
+            <div class="field-block">
+              <p class="question">Vækkede anfaldet dig fra din søvn?</p>
+              <div class="choice-grid two compact">
+                <label class="choice"><input type="radio" name="wokeFromSleep" value="Ja"><span>Ja</span></label>
+                <label class="choice"><input type="radio" name="wokeFromSleep" value="Nej"><span>Nej</span></label>
+              </div>
+              <div id="sleep-type-wrap" class="conditional" hidden>
+                <label>Hvilken søvn?
+                  <select id="sleep-type" name="sleepType"><option value="">Vælg…</option><option>Nattesøvn / hovedsøvn</option><option>Middagslur / hvile i løbet af dagen</option></select>
+                </label>
+              </div>
+            </div>
+          </fieldset>
+
+          <fieldset class="form-card">
+            <legend><span>04</span>Mulige triggere</legend>
+            <p class="question">Mulige triggere inden for de sidste 4 timer</p>
+            <div class="choice-grid two check-grid" id="trigger-options"></div>
+          </fieldset>
+
+          <fieldset class="form-card">
+            <legend><span>05</span>Akut behandling</legend>
+            <div class="field-block">
+              <p class="question">Hvilken akut medicin eller behandling tog du?</p>
+              <div class="choice-grid two check-grid" id="treatment-options"></div>
+            </div>
+            <label>Hvor hurtigt virkede den akutte behandling?
+              <select id="treatment-effect" name="treatmentEffect">
+                <option value="">Vælg…</option>
+                <option>Inden for 10-15 minutter (Fuld eller stor effekt)</option>
+                <option>Inden for 30 minutter</option>
+                <option>Tog mere end 30 minutter</option>
+                <option>Ingen effekt overhovedet</option>
+                <option>Ikke relevant (tog ikke medicin)</option>
+              </select>
+            </label>
+          </fieldset>
+
+          <fieldset class="form-card">
+            <legend><span>06</span>Noter</legend>
+            <label>Eventuelle bemærkninger eller noter <textarea id="notes" name="notes" rows="5" maxlength="4000" placeholder="Skriv fx om forløb, kontekst eller andet, du vil huske…"></textarea></label>
+            <div class="character-count"><span id="notes-count">0</span>/4000</div>
+          </fieldset>
+
+          <div class="form-actions">
+            <button type="button" class="secondary" id="cancel-entry">Annuller</button>
+            <button type="submit" class="primary">Gem registrering <span>→</span></button>
+          </div>
+        </form>
+      </section>
+
+      <section id="view-history" class="view" aria-labelledby="history-title">
+        <div class="view-heading"><div><p class="eyebrow">DIN DAGBOG</p><h1 id="history-title">Historik</h1></div><button class="primary" data-view-target="entry">＋ Nyt anfald</button></div>
+        <div class="toolbar panel">
+          <label>Søg <input id="history-search" type="search" placeholder="Dato, note, medicin…"></label>
+          <label>Fra <input id="history-from" type="date"></label>
+          <label>Til <input id="history-to" type="date"></label>
+          <label>Intensitet <select id="history-intensity"><option value="">Alle</option><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option></select></label>
+        </div>
+        <div id="history-list" class="entry-list empty-state">Ingen registreringer matcher.</div>
+      </section>
+
+      <section id="view-insights" class="view" aria-labelledby="insights-title">
+        <div class="view-heading"><div><p class="eyebrow">MØNSTRE</p><h1 id="insights-title">Indblik</h1></div><label class="range-select">Periode <select id="insight-range"><option value="30">30 dage</option><option value="90">90 dage</option><option value="180">180 dage</option><option value="365">1 år</option><option value="all">Alle</option></select></label></div>
+        <div class="metric-grid insights-metrics">
+          <article class="metric"><span>Anfald</span><strong id="insight-total">0</strong><small>i valgt periode</small></article>
+          <article class="metric"><span>Gns. intensitet</span><strong id="insight-avg-intensity">—</strong><small>skala 1–5</small></article>
+          <article class="metric"><span>Gns. varighed</span><strong id="insight-avg-duration">—</strong><small>minutter</small></article>
+          <article class="metric"><span>Vækket fra søvn</span><strong id="insight-sleep">—</strong><small>andel af anfald</small></article>
+        </div>
+        <div class="chart-grid">
+          <section class="panel"><div class="panel-heading"><h2>Intensitet</h2><small>fordeling 1–5</small></div><div id="intensity-chart" class="bar-chart"></div></section>
+          <section class="panel"><div class="panel-heading"><h2>Hyppigste mulige triggere</h2><small>selvrapporteret</small></div><div id="trigger-chart" class="rank-chart"></div></section>
+        </div>
+        <section class="panel"><div class="panel-heading"><h2>Anfald over tid</h2><small>seneste 12 uger i perioden</small></div><div id="weekly-chart" class="weekly-chart"></div></section>
+        <p class="medical-note">Indblik viser dine egne registreringer og er ikke en medicinsk vurdering. Tal med en sundhedsprofessionel om diagnose og behandling.</p>
+      </section>
+
+      <section id="view-backup" class="view" aria-labelledby="backup-title">
+        <div class="view-heading"><div><p class="eyebrow">FLYT & DEL</p><h1 id="backup-title">Backup og eksport</h1></div></div>
+        <div class="feature-grid">
+          <section class="panel feature-card">
+            <div class="feature-icon">↧</div><h2>Krypteret filbackup</h2><p>Gem en kopi af hele din krypterede boks. Filen kan kun åbnes med adgangssætningen.</p>
+            <button id="download-backup" class="primary">Hent backupfil</button>
+            <label class="file-button secondary">Gendan fra fil<input id="restore-file" type="file" accept=".json,application/json" hidden></label>
+          </section>
+          <section class="panel feature-card onedrive-card">
+            <div class="feature-icon cloud">☁</div><h2>Personlig OneDrive</h2><p>Valgfri ende-til-ende-krypteret backup i appens egen mappe. Horton Tracker kan ikke se andre filer.</p>
+            <div id="onedrive-state" class="connection-state"><i></i><span>Ikke forbundet</span></div>
+            <div class="button-row"><button id="onedrive-connect" class="primary">Forbind Microsoft-konto</button><button id="onedrive-disconnect" class="secondary" hidden>Afbryd</button></div>
+            <div id="onedrive-actions" class="button-row" hidden><button id="onedrive-upload" class="secondary">Backup nu</button><button id="onedrive-restore" class="secondary">Gendan</button></div>
+            <small id="onedrive-meta">Kræver opsætning under Indstillinger.</small>
+          </section>
+        </div>
+        <section class="panel export-panel">
+          <div><p class="eyebrow">TIL NEUROLOGEN</p><h2>Læsbar eksport</h2><p>Eksporter kun de data, du selv vælger at dele. Eksporterne er ikke krypterede.</p></div>
+          <div class="export-controls">
+            <label>Fra <input id="export-from" type="date"></label><label>Til <input id="export-to" type="date"></label>
+            <button id="export-csv" class="secondary">Eksportér CSV</button><button id="export-report" class="primary">Åbn klinikrapport</button>
+          </div>
+        </section>
+      </section>
+
+      <section id="view-settings" class="view" aria-labelledby="settings-title">
+        <div class="view-heading"><div><p class="eyebrow">KONTROL</p><h1 id="settings-title">Indstillinger</h1></div></div>
+        <div class="settings-stack">
+          <section class="panel settings-card"><div><h2>Profil til rapporter</h2><p>Gemmes krypteret sammen med dine registreringer.</p></div><div class="form-grid two"><label>Navn <input id="profile-name" autocomplete="name"></label><label>Neurolog / klinik <input id="profile-clinic"></label></div><button id="save-profile" class="primary">Gem profil</button></section>
+          <section class="panel settings-card"><div><h2>Kryptering</h2><p>AES-GCM med en nøgle afledt lokalt fra din adgangssætning. Den sendes aldrig nogen steder.</p></div><button id="change-passphrase" class="secondary">Skift adgangssætning</button></section>
+          <section class="panel settings-card"><div><h2>Microsoft OneDrive</h2><p>Opret din egen gratis appregistrering. Kun den delegerede Graph-tilladelse <code>Files.ReadWrite.AppFolder</code> bruges.</p></div><div class="form-grid two"><label>Application (client) ID <input id="ms-client-id" spellcheck="false" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"></label><label>Tenant <select id="ms-tenant"><option value="consumers">Personlige Microsoft-konti (consumers)</option><option value="common">Personlige + arbejds-/skolekonti (common)</option><option value="organizations">Kun arbejds-/skolekonti</option></select></label></div><label>SPA-redirect-URI <div class="copy-field"><output id="redirect-uri"></output><button id="copy-redirect" class="text-button">Kopiér</button></div></label><button id="save-ms-config" class="primary">Gem OneDrive-opsætning</button><p class="settings-hint">Se README.md for trinvis appregistrering og GitHub Pages-opsætning.</p></section>
+          <section class="panel settings-card danger-zone"><div><h2>Slet alle lokale data</h2><p>Dette kan ikke fortrydes. En eventuel OneDrive-backup slettes ikke.</p></div><button id="delete-all" class="danger">Slet alt lokalt</button></section>
+        </div>
+      </section>
+    </main>
+
+    <nav class="bottom-nav" aria-label="Mobilmenu">
+      <button class="active" data-view-target="dashboard"><span>◫</span>Overblik</button>
+      <button data-view-target="entry"><span>＋</span>Nyt</button>
+      <button data-view-target="history"><span>≡</span>Historik</button>
+      <button data-view-target="backup"><span>↥</span>Backup</button>
+    </nav>
+  </div>
+
+  <dialog id="unlock-dialog" class="modal" aria-labelledby="unlock-title">
+    <form method="dialog" id="unlock-form">
+      <div class="modal-mark">◆</div><p class="eyebrow">DIN PRIVATE BOKS</p><h2 id="unlock-title">Lås Horton Tracker op</h2><p id="unlock-copy">Indtast din adgangssætning. Den forlader aldrig denne enhed.</p>
+      <label>Adgangssætning <input id="unlock-passphrase" type="password" minlength="10" autocomplete="current-password" required></label>
+      <div id="unlock-confirm-wrap" hidden><label>Gentag adgangssætning <input id="unlock-confirm" type="password" minlength="10" autocomplete="new-password"></label><p class="passphrase-help">Mindst 10 tegn. Gem den sikkert – den kan ikke nulstilles.</p></div>
+      <p id="unlock-error" class="inline-error" role="alert"></p><button id="unlock-submit" class="primary wide" value="default">Lås op</button>
+    </form>
+  </dialog>
+
+  <dialog id="confirm-dialog" class="modal compact-modal"><form method="dialog"><h2 id="confirm-title">Er du sikker?</h2><p id="confirm-message"></p><div class="button-row end"><button value="cancel" class="secondary">Annuller</button><button id="confirm-ok" value="ok" class="danger">Fortsæt</button></div></form></dialog>
+  <dialog id="secret-dialog" class="modal compact-modal" aria-labelledby="secret-title"><form method="dialog" id="secret-form"><h2 id="secret-title">Adgangssætning</h2><p id="secret-message"></p><label>Adgangssætning <input id="secret-value" type="password" minlength="10" autocomplete="current-password" required></label><label id="secret-confirm-wrap" hidden>Gentag adgangssætning <input id="secret-confirm" type="password" minlength="10" autocomplete="new-password"></label><p id="secret-error" class="inline-error" role="alert"></p><div class="button-row end"><button id="secret-cancel" type="button" class="secondary">Annuller</button><button id="secret-submit" value="default" class="primary">Fortsæt</button></div></form></dialog>
+  <div id="toast-region" class="toast-region" aria-live="polite" aria-atomic="true"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
