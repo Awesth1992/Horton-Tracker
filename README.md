@@ -120,7 +120,7 @@ Google Drive er **valgfri**. Horton Tracker bruger én OAuth-klient, som appens 
 
 OAuth-klienten skal have **Google Drive API** aktiveret, ekstern målgruppe og den autoriserede JavaScript-oprindelse `https://tracker.khwesth.dk`. Hvis hostingdomænet ændres, skal den nye oprindelse tilføjes i Google Cloud og client ID'et i appens `app.js` opdateres. Ved generel offentlig brug skal Google Auth Platform sættes til produktion, og konfigurationen skal opfylde Googles aktuelle krav til hjemmeside og privatlivspolitik.
 
-Appen anmoder kun om `https://www.googleapis.com/auth/drive.appdata`, en ikke-følsom scope, der begrænser adgangen til appens egen skjulte Drive-mappe. Selve Google-login og brugersamtykke er stadig nødvendigt. Den korte levetid på Google-access-token kan betyde, at Google beder om ny godkendelse ved en senere backup eller gendannelse.
+Appen anmoder kun om `https://www.googleapis.com/auth/drive.appdata`, en ikke-følsom scope, der begrænser adgangen til appens egen skjulte Drive-mappe. Selve Google-login og brugersamtykke er stadig nødvendigt. Ved genforbindelse genbruges eksisterende samtykke, når Google tillader det; appen tvinger ikke samtykkeskærmen frem hver gang. Google bestemmer access-tokenets korte levetid. Fornyelse kræver fortsat brugerinteraktion; længerevarende automatisk adgang kræver en backend med authorization code-flow og sikker opbevaring af refresh tokens.
 
 Backupens indhold følger appens krypteringsindstilling. Med kryptering slået fra er cloud-filen læsbar; aktiver kryptering, før du uploader helbredsdata, du vil beskytte.
 

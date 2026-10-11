@@ -359,7 +359,7 @@
     });
   }
   async function googleAccessToken(){const token=getGoogleToken();if(token&&Date.now()<token.expires_at-60000)return token.access_token;return requestGoogleAccessToken();}
-  async function connectGoogleDrive(){try{await requestGoogleAccessToken('consent');googleReconnectPrompted=false;renderGoogleDriveState();showView('backup');toast('Google Drive forbundet.');if(isLiveSyncEnabled('google')){pendingCloudUploads.add('google');scheduleCloudSync(0);}}catch(error){toast(error.message,'error');}}
+  async function connectGoogleDrive(){try{await requestGoogleAccessToken();googleReconnectPrompted=false;renderGoogleDriveState();showView('backup');toast('Google Drive forbundet.');if(isLiveSyncEnabled('google')){pendingCloudUploads.add('google');scheduleCloudSync(0);}}catch(error){toast(error.message,'error');}}
   async function driveFetch(path,options={},tokenOverride=null){
     const token=tokenOverride||await googleAccessToken(),headers=new Headers(options.headers||{});headers.set('Authorization',`Bearer ${token}`);const response=await fetch(`${DRIVE_API}${path}`,{...options,headers});if(!response.ok){let message=`Google Drive returnerede ${response.status}`;try{const body=await response.json();message=body.error?.message||message;}catch{}const error=new Error(message);error.status=response.status;throw error;}return response;
   }
