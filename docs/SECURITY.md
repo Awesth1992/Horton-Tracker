@@ -16,8 +16,8 @@ Adgangssætningen og den afledte `CryptoKey` findes kun i hukommelsen, mens appe
 
 - **IndexedDB:** krypteret envelope, hvis kryptering er slået til; ellers en plaintext record.
 - **Backupfil:** samme krypteringsstatus som den lokale boks.
-- **OneDrive:** samme record som lokalt; upload af plaintext kræver en bekræftelse.
-- **Google Drive:** samme record som lokalt i appens skjulte `appDataFolder`; upload af plaintext kræver en bekræftelse.
+- **OneDrive:** samme record som lokalt; upload af plaintext kræver en bekræftelse. Live sync sender efterfølgende ændringer automatisk, indtil funktionen slås fra.
+- **Google Drive:** samme record som lokalt i appens skjulte `appDataFolder`; upload af plaintext kræver en bekræftelse. Live sync sender efterfølgende ændringer automatisk, indtil funktionen slås fra.
 - **localStorage:** ikke-følsom Microsoft-konfiguration (client ID og tenant). Google client ID ligger offentligt i `app.js`; ingen client secret gemmes i appen.
 - **sessionStorage:** kortlivede OAuth-state/PKCE-data og Microsoft-/Google-tokens for den aktuelle browsersession.
 
@@ -29,7 +29,7 @@ Appen implementerer Authorization Code Flow med PKCE til en public SPA-client. D
 
 ## Google-identitet og Drive
 
-Google Identity Services leverer et kortlivet access token i browseren. Appen anmoder kun om den ikke-følsomme `https://www.googleapis.com/auth/drive.appdata`-scope og bruger Drive API's skjulte `appDataFolder`. Tokenet gemmes i `sessionStorage`; der bruges ingen client secret, refresh token eller backend. Google Identity Services indlæses fra Googles officielle script-host, når appen åbner.
+Google Identity Services leverer et kortlivet access token i browseren. Appen anmoder kun om den ikke-følsomme `https://www.googleapis.com/auth/drive.appdata`-scope og bruger Drive API's skjulte `appDataFolder`. Tokenet gemmes i `sessionStorage`; det kræver brugerinteraktion at forny, og live sync sættes derfor på pause, når tokenet udløber. Der bruges ingen client secret, refresh token eller backend. Google Identity Services indlæses fra Googles officielle script-host, når appen åbner.
 
 ## Trusselsmodel og begrænsninger
 

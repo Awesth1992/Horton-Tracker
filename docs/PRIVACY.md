@@ -14,6 +14,7 @@ Når brugeren aktivt forbinder OneDrive:
 - en backup uploades til appens særlige OneDrive-mappe; den er krypteret kun, hvis brugeren har slået kryptering til;
 - Microsoft kan se filnavn, størrelse og tidsstempler, og kan læse indholdet, hvis kryptering er slået fra;
 - Horton Tracker anmoder kun om `Files.ReadWrite.AppFolder` til filer og kan ikke bladre i andre OneDrive-filer;
+- når live sync er slået til, uploades lokale ændringer automatisk, og appen kontrollerer for ændringer fra andre enheder cirka hvert 15. sekund, mens den er synlig og online;
 - forbindelsen kan afbrydes ved at lukke browsersessionen eller vælge **Afbryd**.
 
 Adgang til appen kan også tilbagekaldes i Microsoft-kontoens side for apps og tjenester. Tidligere uploadede plaintext-backups krypteres ikke automatisk, når kryptering aktiveres; en ny backup skal uploades for at erstatte dem.
@@ -26,6 +27,7 @@ Når brugeren aktivt forbinder Google Drive:
 - backup gemmes i appens skjulte `appDataFolder`; den er krypteret kun, hvis brugeren har slået kryptering til;
 - Google kan se filnavn, størrelse og tidsstempler, og kan læse indholdet, hvis kryptering er slået fra;
 - Horton Tracker anmoder kun om `drive.appdata`, ikke adgang til øvrige Drive-filer;
+- når live sync er slået til, uploades lokale ændringer automatisk, og appen kontrollerer for ændringer fra andre enheder cirka hvert 15. sekund, mens den er synlig og online;
 - tokenet findes kun i `sessionStorage` og forsvinder, når browsersessionen afsluttes.
 
 Brugeren kan afbryde sessionen i appen eller tilbagekalde adgang i Google-kontoens sikkerhedsindstillinger. Drive-appmappen slettes ikke automatisk, når lokale data slettes. Tidligere uploadede plaintext-backups krypteres ikke automatisk, når kryptering aktiveres.

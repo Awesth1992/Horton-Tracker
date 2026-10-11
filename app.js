@@ -1,7 +1,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '1.0.0';
+  const APP_VERSION = '1.0.4';
   const DB_NAME = 'horton-tracker';
   const DB_VERSION = 1;
   const STORE = 'secure';
@@ -42,6 +42,14 @@
   let currentView = 'dashboard';
   let confirmResolver = null;
   let googleIdentityPromise = null;
+  let cloudSyncTimer = null;
+  let cloudSyncInFlight = false;
+  let applyingRemoteVault = false;
+  let localVaultRevision = 0;
+  const pendingCloudUploads = new Set();
+  const queuedForcedUploads = new Set();
+  const cloudFingerprints = {onedrive:null,google:null};
+  const cloudSyncStates = {onedrive:{state:'',message:''},google:{state:'',message:''}};
 
   const $ = (selector, root = document) => root.querySelector(selector);
   const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
@@ -120,13 +128,31 @@
   }
   function isEncryptedEnvelope(envelope){return envelope?.format==='horton-tracker-vault';}
   function makePlainEnvelope(data){return{format:'horton-tracker-vault-plain',version:1,appVersion:APP_VERSION,data,updatedAt:isoNow()};}
-  function newVault() { return {schemaVersion:1,createdAt:isoNow(),updatedAt:isoNow(),profile:{name:'',clinic:'',timezone:Intl.DateTimeFormat().resolvedOptions().timeZone},entries:[]}; }
+  function newVault() { return {schemaVersion:1,createdAt:isoNow(),updatedAt:isoNow(),profileUpdatedAt:'',profile:{name:'',clinic:'',timezone:Intl.DateTimeFormat().resolvedOptions().timeZone},entries:[],deletedEntries:[]}; }
+  function mergeVaultData(local,remote){
+    const deletions=new Map();
+    for(const deletion of [...(local.deletedEntries||[]),...(remote.deletedEntries||[])]){
+      const previous=deletions.get(deletion.id);if(!previous||String(deletion.updatedAt)>String(previous.updatedAt))deletions.set(deletion.id,deletion);
+    }
+    const entries=new Map();
+    for(const entry of [...(local.entries||[]),...(remote.entries||[])]){
+      const previous=entries.get(entry.id);if(!previous||String(entry.updatedAt)>=String(previous.updatedAt))entries.set(entry.id,entry);
+    }
+    const mergedEntries=[...entries.values()].filter(entry=>!deletions.has(entry.id)||String(entry.updatedAt)>String(deletions.get(entry.id).updatedAt));
+    const localProfileAt=local.profileUpdatedAt??local.updatedAt??local.createdAt??'';
+    const remoteProfileAt=remote.profileUpdatedAt??remote.updatedAt??remote.createdAt??'';
+    const localProfileEdited=!!(local.profileUpdatedAt||local.profile?.name||local.profile?.clinic),remoteProfileEdited=!!(remote.profileUpdatedAt||remote.profile?.name||remote.profile?.clinic);
+    const profileSource=localProfileEdited!==remoteProfileEdited?(localProfileEdited?local:remote):String(remoteProfileAt)>=String(localProfileAt)?remote:local;
+    const profileUpdatedAt=profileSource.profileUpdatedAt??profileSource.updatedAt??isoNow();
+    return{...local,...remote,createdAt:[local.createdAt,remote.createdAt].filter(Boolean).sort()[0]||isoNow(),updatedAt:[local.updatedAt,remote.updatedAt].filter(Boolean).sort().at(-1)||isoNow(),profile:profileSource.profile||{},profileUpdatedAt,entries:mergedEntries,deletedEntries:[...deletions.values()]};
+  }
+  function markCloudVaultDirty(){if(applyingRemoteVault)return;localVaultRevision++;for(const provider of ['onedrive','google'])if(isLiveSyncEnabled(provider))pendingCloudUploads.add(provider);scheduleCloudSync();}
   async function persistVault() {
     if (!vault) throw new Error('Boksen er låst.');
     setStatus('Gemmer…','syncing'); vault.updatedAt=isoNow();
     if(sessionKey){const salt=isEncryptedEnvelope(vaultEnvelope)?base64ToBytes(vaultEnvelope.kdf.salt):crypto.getRandomValues(new Uint8Array(16));vaultEnvelope=await encryptVault(vault,sessionKey,salt);}
     else vaultEnvelope=makePlainEnvelope(vault);
-    await dbPut(VAULT_KEY,vaultEnvelope);setStatus(sessionKey?'Gemt krypteret':'Gemt lokalt · ukrypteret');
+    await dbPut(VAULT_KEY,vaultEnvelope);setStatus(sessionKey?'Gemt krypteret':'Gemt lokalt · ukrypteret');markCloudVaultDirty();
   }
 
   function showUnlock(createMode = false, errorMessage = '') {
@@ -232,7 +258,7 @@
   }
   async function deleteEntry(id){
     if(!await confirmAction('Slet registrering?','Anfaldet fjernes permanent fra den lokale boks.'))return;
-    vault.entries=vault.entries.filter(e=>e.id!==id);await persistVault();renderAll();toast('Registreringen er slettet.');
+    const deletedAt=isoNow();vault.entries=vault.entries.filter(e=>e.id!==id);vault.deletedEntries=[...(vault.deletedEntries||[]).filter(e=>e.id!==id),{id,updatedAt:deletedAt}];await persistVault();renderAll();toast('Registreringen er slettet.');
   }
   function updateProgress(){
     if(!vault)return;const e=collectForm();const done=[e.date,e.startTime,e.durationMinutes,e.side,e.intensity,e.symptoms.length,e.wokeFromSleep,(e.wokeFromSleep!=='Ja'||e.sleepType),e.triggers.length,e.treatments.length,e.treatmentEffect].filter(Boolean).length;const pct=Math.round(done/11*100);$('#form-progress').textContent=`${pct}%`;$('#form-progress-bar').style.width=`${pct}%`;
@@ -276,7 +302,7 @@
     try{
       if(isEncryptedEnvelope(envelope)){const pass=await requestSecret('Åbn backup','Indtast adgangskoden til den backup, du vil gendanne.');if(pass===null)return;const opened=await decryptEnvelope(envelope,pass);vault=opened.data;sessionKey=opened.key;vaultEnvelope=envelope;await dbPut(VAULT_KEY,envelope);}
       else{vault=envelope.data;if(sessionKey){await persistVault();}else{vaultEnvelope=makePlainEnvelope(vault);await dbPut(VAULT_KEY,vaultEnvelope);}}
-      renderAll();renderEncryptionState();toast(`Backup fra ${sourceLabel} er gendannet${isEncryptedEnvelope(vaultEnvelope)?' krypteret':''}.`);
+      renderAll();renderEncryptionState();markCloudVaultDirty();toast(`Backup fra ${sourceLabel} er gendannet${isEncryptedEnvelope(vaultEnvelope)?' krypteret':''}.`);
     }catch(error){toast(error.message||'Backuppen kunne ikke gendannes. Kontrollér adgangskoden.','error');}
   }
   async function restoreFile(file){try{const envelope=JSON.parse(await file.text());await restoreFromEnvelope(envelope,'fil');}catch(e){toast(e.message||'Backupfilen kunne ikke læses.','error');}}
@@ -309,13 +335,13 @@
   async function accessToken(){
     let token=getTokenData();if(!token)throw new Error('Forbind først din Microsoft-konto.');if(Date.now()<token.expires_at-120000)return token.access_token;if(!token.refresh_token)throw new Error('Sessionen er udløbet. Forbind kontoen igen.');const cfg=getMsConfig();const body=new URLSearchParams({client_id:cfg.clientId,grant_type:'refresh_token',refresh_token:token.refresh_token,scope:`openid profile offline_access ${GRAPH_SCOPE}`});const response=await fetch(`https://login.microsoftonline.com/${encodeURIComponent(cfg.tenant)}/oauth2/v2.0/token`,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body});const next=await response.json();if(!response.ok)throw new Error(next.error_description||'Login-sessionen kunne ikke fornyes.');next.refresh_token=next.refresh_token||token.refresh_token;next.expires_at=Date.now()+next.expires_in*1000;sessionStorage.setItem('horton-ms-token',JSON.stringify(next));return next.access_token;
   }
-  async function graphFetch(path,options={}){const token=await accessToken();const headers=new Headers(options.headers||{});headers.set('Authorization',`Bearer ${token}`);const response=await fetch(`${GRAPH_BASE}${path}`,{...options,headers});if(!response.ok){let message=`Microsoft Graph returnerede ${response.status}`;try{const body=await response.json();message=body.error?.message||message;}catch{}throw new Error(message);}return response;}
-  async function uploadOneDrive(){try{if(!sessionKey&&!await confirmAction('Uploadér ukrypteret backup?','OneDrive-filen vil indeholde læsbare helbredsdata. Aktivér kryptering først, hvis du vil beskytte den.'))return;setStatus('OneDrive…','syncing');await persistVault();const response=await graphFetch(`/me/drive/special/approot:/${CLOUD_FILE}:/content`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(vaultEnvelope)});const item=await response.json();$('#onedrive-meta').textContent=`Seneste backup: ${formatDateTime(item.lastModifiedDateTime||isoNow())}`;setStatus(sessionKey?'Gemt krypteret':'Gemt lokalt · ukrypteret');toast(sessionKey?'Krypteret backup gemt i OneDrive.':'Ukrypteret backup gemt i OneDrive.');}catch(e){setStatus('OneDrive-fejl','error');toast(e.message,'error');}}
+  async function graphFetch(path,options={}){const token=await accessToken();const headers=new Headers(options.headers||{});headers.set('Authorization',`Bearer ${token}`);const response=await fetch(`${GRAPH_BASE}${path}`,{...options,headers});if(!response.ok){let message=`Microsoft Graph returnerede ${response.status}`;try{const body=await response.json();message=body.error?.message||message;}catch{}const error=new Error(message);error.status=response.status;throw error;}return response;}
+  async function uploadOneDrive(){if(!sessionKey&&!await confirmAction('Uploadér ukrypteret backup?','OneDrive-filen vil indeholde læsbare helbredsdata. Aktivér kryptering først, hvis du vil beskytte den.'))return;pendingCloudUploads.add('onedrive');await syncCloudProvider('onedrive',{forceUpload:true});}
   async function restoreOneDrive(){try{const response=await graphFetch(`/me/drive/special/approot:/${CLOUD_FILE}:/content`);const envelope=await response.json();await restoreFromEnvelope(envelope,'OneDrive');}catch(e){toast(e.message,'error');}}
   function disconnectOneDrive(){sessionStorage.removeItem('horton-ms-token');renderOneDriveState();toast('Microsoft-sessionen er afbrudt.');}
   async function refreshCloudMetadata(){try{const response=await graphFetch(`/me/drive/special/approot:/${CLOUD_FILE}`);const item=await response.json();$('#onedrive-meta').textContent=`Seneste backup: ${formatDateTime(item.lastModifiedDateTime)}`;}catch(e){if(!String(e.message).includes('404'))$('#onedrive-meta').textContent='Kunne ikke hente backupstatus.';}}
   function renderOneDriveState(){
-    const cfg=getMsConfig(),token=getTokenData(),connected=!!token;$('#ms-client-id').value=cfg.clientId||'';$('#ms-tenant').value=cfg.tenant||'consumers';$('#redirect-uri').textContent=currentRedirectUri();const state=$('#onedrive-state');state.classList.toggle('connected',connected);$('span',state).textContent=connected?`Forbundet${tokenAccount(token)?` som ${tokenAccount(token)}`:''}`:'Ikke forbundet';$('#onedrive-connect').hidden=connected;$('#onedrive-disconnect').hidden=!connected;$('#onedrive-actions').hidden=!connected;$('#onedrive-meta').textContent=connected?'Backupstatus hentes, når du åbner siden.':cfg.clientId?'Klar til at forbinde.':'Kræver opsætning under Indstillinger.';if(connected&&currentView==='backup')refreshCloudMetadata();
+    const cfg=getMsConfig(),token=getTokenData(),connected=!!token;$('#ms-client-id').value=cfg.clientId||'';$('#ms-tenant').value=cfg.tenant||'consumers';$('#redirect-uri').textContent=currentRedirectUri();const state=$('#onedrive-state');state.classList.toggle('connected',connected);$('span',state).textContent=connected?`Forbundet${tokenAccount(token)?` som ${tokenAccount(token)}`:''}`:'Ikke forbundet';$('#onedrive-connect').hidden=connected;$('#onedrive-disconnect').hidden=!connected;$('#onedrive-actions').hidden=!connected;$('#onedrive-live-sync').checked=isLiveSyncEnabled('onedrive');$('#onedrive-meta').textContent=connected?(cloudSyncStates.onedrive.message||(isLiveSyncEnabled('onedrive')?'Live sync aktiveret.':'Forbundet. Live sync er sat på pause.')):'Klar til at forbinde.';if(connected&&currentView==='backup'&&!isLiveSyncEnabled('onedrive'))refreshCloudMetadata();
   }
 
   function getGoogleConfig(){return{clientId:GOOGLE_CLIENT_ID};}
@@ -333,22 +359,87 @@
   }
   async function googleAccessToken(){const token=getGoogleToken();if(token&&Date.now()<token.expires_at-60000)return token.access_token;return requestGoogleAccessToken();}
   async function connectGoogleDrive(){try{await requestGoogleAccessToken('consent');renderGoogleDriveState();showView('backup');toast('Google Drive forbundet.');}catch(error){toast(error.message,'error');}}
-  async function driveFetch(path,options={}){
-    const token=await googleAccessToken(),headers=new Headers(options.headers||{});headers.set('Authorization',`Bearer ${token}`);const response=await fetch(`${DRIVE_API}${path}`,{...options,headers});if(!response.ok){let message=`Google Drive returnerede ${response.status}`;try{const body=await response.json();message=body.error?.message||message;}catch{}throw new Error(message);}return response;
+  async function driveFetch(path,options={},tokenOverride=null){
+    const token=tokenOverride||await googleAccessToken(),headers=new Headers(options.headers||{});headers.set('Authorization',`Bearer ${token}`);const response=await fetch(`${DRIVE_API}${path}`,{...options,headers});if(!response.ok){let message=`Google Drive returnerede ${response.status}`;try{const body=await response.json();message=body.error?.message||message;}catch{}throw new Error(message);}return response;
   }
-  async function findGoogleBackup(){const response=await driveFetch(`/files?spaces=appDataFolder&pageSize=100&fields=files(id,name,modifiedTime)`),body=await response.json();return(body.files||[]).filter(file=>file.name===CLOUD_FILE).sort((a,b)=>String(b.modifiedTime).localeCompare(String(a.modifiedTime)));}
-  async function uploadGoogleDrive(){try{const token=await googleAccessToken();if(!sessionKey&&!await confirmAction('Uploadér ukrypteret backup?','Google Drive-filen vil indeholde læsbare helbredsdata. Aktivér kryptering først, hvis du vil beskytte den.'))return;setStatus('Google Drive…','syncing');await persistVault();const files=await findGoogleBackup(),file=files[0];let response;if(file){response=await fetch(`https://www.googleapis.com/upload/drive/v3/files/${encodeURIComponent(file.id)}?uploadType=media`,{method:'PATCH',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},body:JSON.stringify(vaultEnvelope)});}else{const boundary=`horton_${randomUrlSafe(12)}`,metadata={name:CLOUD_FILE,parents:['appDataFolder']},body=`--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n--${boundary}\r\nContent-Type: application/json\r\n\r\n${JSON.stringify(vaultEnvelope)}\r\n--${boundary}--`;response=await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,modifiedTime',{method:'POST',headers:{Authorization:`Bearer ${token}`,'Content-Type':`multipart/related; boundary=${boundary}`},body});}if(!response.ok){let message=`Google Drive returnerede ${response.status}`;try{const body=await response.json();message=body.error?.message||message;}catch{}throw new Error(message);}const item=await response.json();$('#google-drive-meta').textContent=`Seneste backup: ${formatDateTime(item.modifiedTime||isoNow())}`;setStatus(sessionKey?'Gemt krypteret':'Gemt lokalt · ukrypteret');toast(sessionKey?'Krypteret backup gemt i Google Drive.':'Ukrypteret backup gemt i Google Drive.');}catch(error){setStatus('Google Drive-fejl','error');toast(error.message,'error');}}
+  async function findGoogleBackup(tokenOverride=null){const response=await driveFetch(`/files?spaces=appDataFolder&pageSize=100&fields=files(id,name,modifiedTime,md5Checksum)`,{},tokenOverride),body=await response.json();return(body.files||[]).filter(file=>file.name===CLOUD_FILE).sort((a,b)=>String(b.modifiedTime).localeCompare(String(a.modifiedTime)));}
+  async function uploadGoogleDrive(){let token;try{token=await googleAccessToken();}catch(error){toast(error.message,'error');return;}if(!sessionKey&&!await confirmAction('Uploadér ukrypteret backup?','Google Drive-filen vil indeholde læsbare helbredsdata. Aktivér kryptering først, hvis du vil beskytte den.'))return;pendingCloudUploads.add('google');await syncCloudProvider('google',{forceUpload:true,tokenOverride:token});}
   async function restoreGoogleDrive(){try{const files=await findGoogleBackup();if(!files.length)throw new Error('Der blev ikke fundet en backup i Google Drive.');const response=await driveFetch(`/files/${encodeURIComponent(files[0].id)}?alt=media`);await restoreFromEnvelope(await response.json(),'Google Drive');}catch(error){toast(error.message,'error');}}
   function disconnectGoogleDrive(){sessionStorage.removeItem('horton-google-token');renderGoogleDriveState();toast('Google Drive-sessionen er afbrudt.');}
   async function refreshGoogleDriveMetadata(){try{const files=await findGoogleBackup();$('#google-drive-meta').textContent=files.length?`Seneste backup: ${formatDateTime(files[0].modifiedTime)}`:'Forbundet. Ingen backup endnu.';}catch(error){$('#google-drive-meta').textContent='Kunne ikke hente backupstatus.';}}
-  function renderGoogleDriveState(){const token=getGoogleToken(),connected=!!token;const state=$('#google-drive-state');state.classList.toggle('connected',connected);$('span',state).textContent=connected?'Forbundet':'Ikke forbundet';$('#google-drive-connect').hidden=connected;$('#google-drive-disconnect').hidden=!connected;$('#google-drive-actions').hidden=!connected;$('#google-drive-meta').textContent=connected?'Backupstatus hentes, når du åbner siden.':'Klar til at forbinde din Google-konto.';if(connected&&currentView==='backup')refreshGoogleDriveMetadata();}
+  function renderGoogleDriveState(){const token=getGoogleToken(),connected=!!token&&Date.now()<token.expires_at-60000;const state=$('#google-drive-state');state.classList.toggle('connected',connected);$('span',state).textContent=connected?'Forbundet':token?'Session udløbet · forbind igen':'Ikke forbundet';$('#google-drive-connect').hidden=connected;$('#google-drive-disconnect').hidden=!token;$('#google-drive-actions').hidden=!connected;$('#google-drive-live-sync').checked=isLiveSyncEnabled('google');$('#google-drive-meta').textContent=connected?(cloudSyncStates.google.message||(isLiveSyncEnabled('google')?'Live sync aktiveret.':'Forbundet. Live sync er sat på pause.')):token?'Google-session udløbet. Tryk Forbind Google-konto for at genoptage.':'Klar til at forbinde din Google-konto.';if(connected&&currentView==='backup'&&!isLiveSyncEnabled('google'))refreshGoogleDriveMetadata();}
+
+  function liveSyncKey(provider){return`horton-live-sync-${provider}`;}
+  function isLiveSyncEnabled(provider){return localStorage.getItem(liveSyncKey(provider))==='true';}
+  function providerConnected(provider){if(provider==='onedrive')return!!getTokenData();const token=getGoogleToken();return!!token&&Date.now()<token.expires_at-60000;}
+  function fingerprintForProvider(provider,item){return provider==='onedrive'?item.eTag||item.cTag||`${item.lastModifiedDateTime}:${item.size}`:item.md5Checksum||`${item.modifiedTime}:${item.id}`;}
+  function setProviderSyncState(provider,state,message){
+    cloudSyncStates[provider]={state,message};
+    const root=$(`#${provider==='onedrive'?'onedrive':'google-drive'}-state`);root.classList.toggle('syncing',state==='syncing');root.classList.toggle('error',state==='error');
+    const meta=$(`#${provider==='onedrive'?'onedrive':'google-drive'}-meta`);if(message)meta.textContent=message;
+  }
+  async function readCloudMetadata(provider,token){
+    if(provider==='onedrive'){
+      try{const response=await graphFetch(`/me/drive/special/approot:/${CLOUD_FILE}`,{method:'GET'});const item=await response.json();return{item,fingerprint:fingerprintForProvider(provider,item)};}
+      catch(error){if(error.status===404)return null;throw error;}
+    }
+    const files=await findGoogleBackup(token);if(!files.length)return null;return{item:files[0],fingerprint:fingerprintForProvider(provider,files[0])};
+  }
+  async function downloadCloudEnvelope(provider,item,token){
+    const response=provider==='onedrive'?await graphFetch(`/me/drive/special/approot:/${CLOUD_FILE}:/content`):await driveFetch(`/files/${encodeURIComponent(item.id)}?alt=media`,{},token);
+    return response.json();
+  }
+  async function uploadCloudEnvelope(provider,token){
+    if(provider==='onedrive'){
+      const response=await graphFetch(`/me/drive/special/approot:/${CLOUD_FILE}:/content`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(vaultEnvelope)});return response.json();
+    }
+    const files=await findGoogleBackup(token),file=files[0];let response;
+    if(file)response=await fetch(`https://www.googleapis.com/upload/drive/v3/files/${encodeURIComponent(file.id)}?uploadType=media&fields=id,name,modifiedTime,md5Checksum`,{method:'PATCH',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},body:JSON.stringify(vaultEnvelope)});
+    else{const boundary=`horton_${randomUrlSafe(12)}`,metadata={name:CLOUD_FILE,parents:['appDataFolder']},body=`--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n--${boundary}\r\nContent-Type: application/json\r\n\r\n${JSON.stringify(vaultEnvelope)}\r\n--${boundary}--`;response=await fetch(`https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,modifiedTime,md5Checksum`,{method:'POST',headers:{Authorization:`Bearer ${token}`,'Content-Type':`multipart/related; boundary=${boundary}`},body});}
+    if(!response.ok){let message=`Google Drive returnerede ${response.status}`;try{const body=await response.json();message=body.error?.message||message;}catch{}throw new Error(message);}return response.json();
+  }
+  async function syncCloudProvider(provider,{forceUpload=false,tokenOverride=null}={}){
+    if(!vault)return;if(cloudSyncInFlight){if(forceUpload)queuedForcedUploads.add(provider);scheduleCloudSync(1200);return;}cloudSyncInFlight=true;let retryDelay=1200;setProviderSyncState(provider,'syncing','Synkroniserer…');setStatus('Synkroniserer…','syncing');
+    try{
+      const startingRevision=localVaultRevision;
+      let token=tokenOverride;
+      if(provider==='onedrive')token=await accessToken();
+      else{const saved=getGoogleToken();if(!token&&saved&&Date.now()<saved.expires_at-60000)token=saved.access_token;if(!token)throw new Error('Google-login udløbet. Tryk Forbind Google-konto for at fortsætte live sync.');}
+      const remote=await readCloudMetadata(provider,token),knownFingerprint=cloudFingerprints[provider],needsRemoteRead=!!remote&&(remote.fingerprint!==knownFingerprint||pendingCloudUploads.has(provider)||forceUpload);
+      let remoteData=null;
+      if(needsRemoteRead){
+        const remoteEnvelope=await downloadCloudEnvelope(provider,remote.item,token);validateEnvelope(remoteEnvelope);
+        if(isEncryptedEnvelope(remoteEnvelope)){
+          if(!sessionKey)throw new Error('Cloud-backuppen er krypteret. Lås den lokale boks op med samme adgangskode for at synkronisere.');
+          try{remoteData=(await decryptEnvelope(remoteEnvelope,sessionKey)).data;}catch{throw new Error('Cloud-backuppen bruger en anden adgangskode. Gendan den manuelt før live sync.');}
+        }else remoteData=remoteEnvelope.data;
+        const merged=mergeVaultData(vault,remoteData);
+        if(JSON.stringify(merged)!==JSON.stringify(vault)){vault=merged;applyingRemoteVault=true;try{await persistVault();}finally{applyingRemoteVault=false;}renderAll();renderEncryptionState();}
+      }
+      const shouldUpload=!remote||forceUpload||pendingCloudUploads.has(provider)||(remoteData&&JSON.stringify(vault)!==JSON.stringify(remoteData));
+      if(shouldUpload){const item=await uploadCloudEnvelope(provider,token);cloudFingerprints[provider]=fingerprintForProvider(provider,item);if(localVaultRevision===startingRevision)pendingCloudUploads.delete(provider);else pendingCloudUploads.add(provider);}
+      else if(remote)cloudFingerprints[provider]=remote.fingerprint;
+      const stateText=isLiveSyncEnabled(provider)?`Live sync · senest ${formatDateTime(isoNow())}`:`Synkroniseret ${formatDateTime(isoNow())}`;
+      queuedForcedUploads.delete(provider);setProviderSyncState(provider,'',stateText);setStatus(sessionKey?'Synkroniseret':'Synkroniseret · ukrypteret');
+    }catch(error){retryDelay=15000;if(provider==='google'&&(!getGoogleToken()||Date.now()>=getGoogleToken().expires_at-60000))renderGoogleDriveState();setProviderSyncState(provider,'error',error.message||'Synkronisering mislykkedes.');setStatus('Sync kræver opmærksomhed','error');}
+    finally{cloudSyncInFlight=false;if(queuedForcedUploads.size||[...pendingCloudUploads].some(name=>isLiveSyncEnabled(name)))scheduleCloudSync(retryDelay);}
+  }
+  async function syncEnabledProviders(){if(cloudSyncInFlight||document.hidden||!navigator.onLine||!vault)return;for(const provider of ['onedrive','google']){if(!isLiveSyncEnabled(provider)&&!queuedForcedUploads.has(provider))continue;if(provider==='google'&&!providerConnected(provider)){renderGoogleDriveState();setProviderSyncState('google','error','Google-login udløbet. Tryk Forbind Google-konto for at genoptage live sync.');setStatus('Google-login kræves','error');continue;}if(providerConnected(provider))await syncCloudProvider(provider,{forceUpload:queuedForcedUploads.has(provider)});}}
+  function scheduleCloudSync(delay=700){if(!vault)return;clearTimeout(cloudSyncTimer);cloudSyncTimer=setTimeout(syncEnabledProviders,delay);}
+  async function setLiveSync(provider,enabled){
+    const checkbox=$(`#${provider==='onedrive'?'onedrive':'google-drive'}-live-sync`);
+    if(!providerConnected(provider)){checkbox.checked=false;toast('Forbind først kontoen for at aktivere live sync.','error');return;}
+    if(enabled&&!sessionKey&&!await confirmAction('Aktivér live sync uden kryptering?','Ændringer uploades automatisk og kan læses i cloud. Aktivér kryptering først, hvis du vil beskytte helbredsdata.')){checkbox.checked=false;return;}
+    if(enabled){localStorage.setItem(liveSyncKey(provider),'true');pendingCloudUploads.add(provider);setProviderSyncState(provider,'syncing','Live sync starter…');scheduleCloudSync(0);}
+    else{localStorage.removeItem(liveSyncKey(provider));setProviderSyncState(provider,'','Live sync sat på pause.');}
+  }
 
   async function changePassphrase(){
-    if(!sessionKey){toast('Aktivér først kryptering.','error');return;}const old=await requestSecret('Bekræft adgangskode','Indtast din nuværende adgangskode.');if(old===null)return;try{await decryptEnvelope(vaultEnvelope,old);}catch{toast('Den nuværende adgangskode er forkert.','error');return;}const next=await requestSecret('Ny adgangskode','Vælg og gentag en ny adgangskode på mindst 10 tegn.',true);if(next===null)return;const salt=crypto.getRandomValues(new Uint8Array(16));sessionKey=await deriveKey(next,salt);vaultEnvelope=await encryptVault(vault,sessionKey,salt);await dbPut(VAULT_KEY,vaultEnvelope);renderEncryptionState();toast('adgangskoden er ændret. Tag en ny backup.');
+    if(!sessionKey){toast('Aktivér først kryptering.','error');return;}const old=await requestSecret('Bekræft adgangskode','Indtast din nuværende adgangskode.');if(old===null)return;try{await decryptEnvelope(vaultEnvelope,old);}catch{toast('Den nuværende adgangskode er forkert.','error');return;}const next=await requestSecret('Ny adgangskode','Vælg og gentag en ny adgangskode på mindst 10 tegn.',true);if(next===null)return;const salt=crypto.getRandomValues(new Uint8Array(16));sessionKey=await deriveKey(next,salt);vaultEnvelope=await encryptVault(vault,sessionKey,salt);await dbPut(VAULT_KEY,vaultEnvelope);renderEncryptionState();markCloudVaultDirty();toast('adgangskoden er ændret. Tag en ny backup.');
   }
   async function enableEncryption(){
     if(sessionKey)return;const pass=await requestSecret('Aktivér kryptering','Vælg en adgangskode på mindst 10 tegn. Din nuværende boks bliver krypteret, og kryptering kræves ved næste opstart.',true);if(pass===null)return;
-    const salt=crypto.getRandomValues(new Uint8Array(16));sessionKey=await deriveKey(pass,salt);vaultEnvelope=await encryptVault(vault,sessionKey,salt);await dbPut(VAULT_KEY,vaultEnvelope);renderEncryptionState();renderAll();toast('Boksen er krypteret. Kør Backup nu igen for at erstatte eventuelle ukrypterede cloud-backups.');
+    const salt=crypto.getRandomValues(new Uint8Array(16));sessionKey=await deriveKey(pass,salt);vaultEnvelope=await encryptVault(vault,sessionKey,salt);await dbPut(VAULT_KEY,vaultEnvelope);renderEncryptionState();renderAll();markCloudVaultDirty();toast('Boksen er krypteret. Kør Backup nu igen for at erstatte eventuelle ukrypterede cloud-backups.');
   }
   function renderEncryptionState(){
     const encrypted=!!sessionKey;$('#encryption-state').textContent=encrypted?'Kryptering er til · adgangskode kræves ved opstart':'Kryptering er fra · data gemmes ukrypteret';$('#privacy-label').textContent=encrypted?'Krypteret lokalt':'Ukrypteret lokalt';$('#encryption-description').textContent=encrypted?'AES-GCM krypterer lokale data og backups. adgangskoden kræves ved hver ny opstart.':'Data gemmes læsbart på denne enhed og i cloud-backups. Aktivér kryptering for at kryptere den eksisterende boks; tidligere cloud-backups forbliver ukrypterede, indtil de sikkerhedskopieres igen.';$('#enable-encryption').hidden=encrypted;$('#change-passphrase').hidden=!encrypted;$('#lock-button').hidden=!encrypted;$('#backup-file-title').textContent=encrypted?'Krypteret filbackup':'Ukrypteret filbackup';$('#backup-file-copy').textContent=encrypted?'Gem en kopi af den krypterede boks. Filen kan kun åbnes med adgangskoden.':'Gem en læsbar kopi af alle registreringer og profiloplysninger.';$$('.cloud-encryption-copy').forEach(el=>el.textContent=encrypted?'Krypteres lokalt før upload; appen bruger kun sin private mappe.':'Cloud-filen er læsbar, indtil du aktiverer kryptering.');
@@ -365,9 +456,10 @@
     $('#history-list').addEventListener('click',e=>{const edit=e.target.closest('[data-edit]'),del=e.target.closest('[data-delete]');if(edit)editEntry(edit.dataset.edit);if(del)deleteEntry(del.dataset.delete);});
     ['history-search','history-from','history-to','history-intensity'].forEach(id=>$(`#${id}`).addEventListener('input',renderHistory));$('#insight-range').addEventListener('change',renderInsights);
     $('#download-backup').addEventListener('click',downloadBackup);$('#restore-file').addEventListener('change',e=>{if(e.target.files[0])restoreFile(e.target.files[0]);e.target.value='';});$('#export-csv').addEventListener('click',exportCSV);$('#export-report').addEventListener('click',openReport);
-    $('#save-profile').addEventListener('click',async()=>{vault.profile={...(vault.profile||{}),name:$('#profile-name').value.trim(),clinic:$('#profile-clinic').value.trim()};await persistVault();toast('Profil gemt.');});$('#enable-encryption').addEventListener('click',enableEncryption);$('#change-passphrase').addEventListener('click',changePassphrase);
+    $('#save-profile').addEventListener('click',async()=>{vault.profile={...(vault.profile||{}),name:$('#profile-name').value.trim(),clinic:$('#profile-clinic').value.trim()};vault.profileUpdatedAt=isoNow();await persistVault();toast('Profil gemt.');});$('#enable-encryption').addEventListener('click',enableEncryption);$('#change-passphrase').addEventListener('click',changePassphrase);
     $('#save-ms-config').addEventListener('click',saveMsConfig);$('#copy-redirect').addEventListener('click',async()=>{await navigator.clipboard.writeText(currentRedirectUri());toast('Redirect-URI kopieret.');});$('#onedrive-connect').addEventListener('click',connectOneDrive);$('#onedrive-disconnect').addEventListener('click',disconnectOneDrive);$('#onedrive-upload').addEventListener('click',uploadOneDrive);$('#onedrive-restore').addEventListener('click',restoreOneDrive);
     $('#google-drive-connect').addEventListener('click',connectGoogleDrive);$('#google-drive-disconnect').addEventListener('click',disconnectGoogleDrive);$('#google-drive-upload').addEventListener('click',uploadGoogleDrive);$('#google-drive-restore').addEventListener('click',restoreGoogleDrive);
+    $('#onedrive-live-sync').addEventListener('change',event=>setLiveSync('onedrive',event.target.checked));$('#google-drive-live-sync').addEventListener('change',event=>setLiveSync('google',event.target.checked));
     $('#delete-all').addEventListener('click',async()=>{if(!await confirmAction('Slet alle lokale data?','Alle registreringer, profil og den lokale boks slettes permanent.'))return;await dbDelete(VAULT_KEY);vault=null;sessionKey=null;location.reload();});
     $('#lock-button').addEventListener('click',lockApp);$('#confirm-dialog').addEventListener('close',()=>{if(confirmResolver){confirmResolver($('#confirm-dialog').returnValue==='ok');confirmResolver=null;}});
     window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferredInstallPrompt=e;$('#install-button').hidden=false;});$('#install-button').addEventListener('click',async()=>{if(!deferredInstallPrompt)return;deferredInstallPrompt.prompt();await deferredInstallPrompt.userChoice;deferredInstallPrompt=null;$('#install-button').hidden=true;});window.addEventListener('appinstalled',()=>toast('Horton Tracker er installeret.'));
@@ -376,7 +468,7 @@
   async function init(){
     if(!window.crypto?.subtle||!window.indexedDB){document.body.innerHTML='<main style="margin:3rem"><h1>Browseren understøttes ikke</h1><p>Horton Tracker kræver Web Crypto og IndexedDB. Brug en opdateret browser via HTTPS.</p></main>';return;}
     setupQuestionnaire();bindEvents();$('#attack-date').value=todayISO();$('#redirect-uri').textContent=currentRedirectUri();loadGoogleIdentity().catch(()=>{});
-    try{db=await openDatabase();await unlockApp();}catch(e){console.error(e);toast('Appen kunne ikke starte: '+e.message,'error');}
+    try{db=await openDatabase();await unlockApp();setInterval(()=>syncEnabledProviders(),15000);window.addEventListener('online',()=>scheduleCloudSync(0));document.addEventListener('visibilitychange',()=>{if(!document.hidden)scheduleCloudSync(0);});scheduleCloudSync(0);}catch(e){console.error(e);toast('Appen kunne ikke starte: '+e.message,'error');}
     if('serviceWorker'in navigator&&location.protocol.startsWith('http'))navigator.serviceWorker.register('./sw.js').catch(err=>console.warn('Service worker:',err));
   }
   init();

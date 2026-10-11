@@ -57,6 +57,7 @@ Ciphertext dekrypteres til UTF-8 JSON:
     "clinic": "",
     "timezone": "Europe/Copenhagen"
   },
+  "profileUpdatedAt": "ISO-8601",
   "entries": [
     {
       "id": "UUID",
@@ -77,8 +78,13 @@ Ciphertext dekrypteres til UTF-8 JSON:
       "createdAt": "ISO-8601",
       "updatedAt": "ISO-8601"
     }
+  ],
+  "deletedEntries": [
+    {"id": "UUID", "updatedAt": "ISO-8601"}
   ]
 }
 ```
+
+`profileUpdatedAt` og `deletedEntries` understøtter synkronisering mellem enheder. Sletningsmarkører beholdes, så en post ikke dukker op igen på en enhed, der endnu ikke har modtaget sletningen.
 
 Feltnavne og enum-værdier er en del af schema version 1. Ved fremtidige ændringer skal `schemaVersion` migreres eksplicit, og restore skal fortsat acceptere ældre envelope-versioner eller afvise dem med en forståelig fejl.

@@ -143,6 +143,16 @@ Backupens indhold følger appens krypteringsindstilling. Med kryptering slået f
 
 Tag altid en ny backup efter ændring af adgangssætning. En ældre krypteret backup bruger fortsat den gamle adgangssætning.
 
+### Live sync på flere enheder
+
+1. Forbind den samme OneDrive- eller Google-konto på hver enhed.
+2. Slå **Hold denne enhed synkroniseret automatisk** til på hver enhed. Hvis kryptering er slået fra, bekræftes først, at cloud-filen bliver læsbar.
+3. Hold appen åben og online. Lokale ændringer sendes automatisk efter en kort pause; ændringer fra andre enheder kontrolleres cirka hvert 15. sekund, når appen er synlig.
+
+Poster flettes efter ID og seneste ændringstid; selvstændige poster fra flere enheder bevares. Sletninger synkroniseres også. Profilen bruger sin seneste ændringstid. Undgå at redigere samme post samtidigt på flere enheder; ved konflikt vinder den seneste tidsstemplede version. Status øverst og på cloud-kortene viser synkronisering, seneste succes eller behov for handling.
+
+Når kryptering er slået til, skal enhederne bruge samme krypterede vault og adgangssætning. Gendan først den eksisterende cloud-backup på en ny enhed; opret ikke en separat krypteret boks med en anden adgangssætning. Google bruger kortlivede access-tokens; når tokenet udløber, viser appen, at kontoen skal forbindes igen. OneDrive-sessionen fornyes automatisk, når det er muligt.
+
 ### Eksport til neurolog
 
 - **CSV:** semikolonsepareret UTF-8 med BOM, egnet til dansk Excel. Multi-select-værdier adskilles med semikolon inde i cellen.
@@ -188,6 +198,6 @@ Testen starter uden adgangssætning, gemmer en komplet registrering ukrypteret, 
 - GitHub-repositoriet indeholder kun appkode, aldrig brugerdata.
 - En OneDrive-backup slettes ikke, når lokale data slettes.
 - En Google Drive-backup slettes ikke, når lokale data slettes.
-- Appen synkroniserer ikke automatisk mellem samtidige enheder. Brug **Backup nu** og **Gendan** bevidst for at undgå at overskrive nyere data.
+- Live sync er valgfri pr. enhed og kræver, at appen er åben og online. **Backup nu** og **Gendan** er fortsat tilgængelige som manuelle handlinger.
 
 Se [docs/SECURITY.md](docs/SECURITY.md), [docs/PRIVACY.md](docs/PRIVACY.md), [docs/DATA-FORMAT.md](docs/DATA-FORMAT.md) og [docs/QUESTIONNAIRE.md](docs/QUESTIONNAIRE.md) for detaljer.
