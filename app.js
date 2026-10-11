@@ -46,6 +46,7 @@
   let cloudSyncInFlight = false;
   let applyingRemoteVault = false;
   let localVaultRevision = 0;
+  let googleReconnectPrompted = false;
   const pendingCloudUploads = new Set();
   const queuedForcedUploads = new Set();
   const cloudFingerprints = {onedrive:null,google:null};
@@ -358,16 +359,21 @@
     });
   }
   async function googleAccessToken(){const token=getGoogleToken();if(token&&Date.now()<token.expires_at-60000)return token.access_token;return requestGoogleAccessToken();}
-  async function connectGoogleDrive(){try{await requestGoogleAccessToken('consent');renderGoogleDriveState();showView('backup');toast('Google Drive forbundet.');}catch(error){toast(error.message,'error');}}
+  async function connectGoogleDrive(){try{await requestGoogleAccessToken('consent');googleReconnectPrompted=false;renderGoogleDriveState();showView('backup');toast('Google Drive forbundet.');if(isLiveSyncEnabled('google')){pendingCloudUploads.add('google');scheduleCloudSync(0);}}catch(error){toast(error.message,'error');}}
   async function driveFetch(path,options={},tokenOverride=null){
-    const token=tokenOverride||await googleAccessToken(),headers=new Headers(options.headers||{});headers.set('Authorization',`Bearer ${token}`);const response=await fetch(`${DRIVE_API}${path}`,{...options,headers});if(!response.ok){let message=`Google Drive returnerede ${response.status}`;try{const body=await response.json();message=body.error?.message||message;}catch{}throw new Error(message);}return response;
+    const token=tokenOverride||await googleAccessToken(),headers=new Headers(options.headers||{});headers.set('Authorization',`Bearer ${token}`);const response=await fetch(`${DRIVE_API}${path}`,{...options,headers});if(!response.ok){let message=`Google Drive returnerede ${response.status}`;try{const body=await response.json();message=body.error?.message||message;}catch{}const error=new Error(message);error.status=response.status;throw error;}return response;
   }
   async function findGoogleBackup(tokenOverride=null){const response=await driveFetch(`/files?spaces=appDataFolder&pageSize=100&fields=files(id,name,modifiedTime,md5Checksum)`,{},tokenOverride),body=await response.json();return(body.files||[]).filter(file=>file.name===CLOUD_FILE).sort((a,b)=>String(b.modifiedTime).localeCompare(String(a.modifiedTime)));}
   async function uploadGoogleDrive(){let token;try{token=await googleAccessToken();}catch(error){toast(error.message,'error');return;}if(!sessionKey&&!await confirmAction('Uploadér ukrypteret backup?','Google Drive-filen vil indeholde læsbare helbredsdata. Aktivér kryptering først, hvis du vil beskytte den.'))return;pendingCloudUploads.add('google');await syncCloudProvider('google',{forceUpload:true,tokenOverride:token});}
   async function restoreGoogleDrive(){try{const files=await findGoogleBackup();if(!files.length)throw new Error('Der blev ikke fundet en backup i Google Drive.');const response=await driveFetch(`/files/${encodeURIComponent(files[0].id)}?alt=media`);await restoreFromEnvelope(await response.json(),'Google Drive');}catch(error){toast(error.message,'error');}}
   function disconnectGoogleDrive(){sessionStorage.removeItem('horton-google-token');renderGoogleDriveState();toast('Google Drive-sessionen er afbrudt.');}
   async function refreshGoogleDriveMetadata(){try{const files=await findGoogleBackup();$('#google-drive-meta').textContent=files.length?`Seneste backup: ${formatDateTime(files[0].modifiedTime)}`:'Forbundet. Ingen backup endnu.';}catch(error){$('#google-drive-meta').textContent='Kunne ikke hente backupstatus.';}}
-  function renderGoogleDriveState(){const token=getGoogleToken(),connected=!!token&&Date.now()<token.expires_at-60000;const state=$('#google-drive-state');state.classList.toggle('connected',connected);$('span',state).textContent=connected?'Forbundet':token?'Session udløbet · forbind igen':'Ikke forbundet';$('#google-drive-connect').hidden=connected;$('#google-drive-disconnect').hidden=!token;$('#google-drive-actions').hidden=!connected;$('#google-drive-live-sync').checked=isLiveSyncEnabled('google');$('#google-drive-meta').textContent=connected?(cloudSyncStates.google.message||(isLiveSyncEnabled('google')?'Live sync aktiveret.':'Forbundet. Live sync er sat på pause.')):token?'Google-session udløbet. Tryk Forbind Google-konto for at genoptage.':'Klar til at forbinde din Google-konto.';if(connected&&currentView==='backup'&&!isLiveSyncEnabled('google'))refreshGoogleDriveMetadata();}
+  function renderGoogleDriveState(){const token=getGoogleToken(),connected=!!token&&Date.now()<token.expires_at-60000,expired=!!token&&!connected;const state=$('#google-drive-state');state.classList.toggle('connected',connected);state.classList.toggle('error',expired);$('span',state).textContent=connected?'Forbundet':expired?'Session udløbet · forbind igen':'Ikke forbundet';$('#google-drive-connect').textContent=expired?'Log ind igen':'Forbind Google-konto';$('#google-drive-connect').hidden=connected;$('#google-drive-disconnect').hidden=!token;$('#google-drive-actions').hidden=!connected;$('#google-drive-live-sync').checked=isLiveSyncEnabled('google');$('#google-drive-meta').textContent=connected?(cloudSyncStates.google.message||(isLiveSyncEnabled('google')?'Live sync aktiveret.':'Forbundet. Live sync er sat på pause.')):expired?'Google-session udløbet. Log ind igen for at genoptage live sync.':'Klar til at forbinde din Google-konto.';if(connected&&currentView==='backup'&&!isLiveSyncEnabled('google'))refreshGoogleDriveMetadata();}
+
+  function promptGoogleReconnect(){
+    renderGoogleDriveState();setProviderSyncState('google','error','Google-login udløbet. Log ind igen for at genoptage live sync.');setStatus('Google-login kræves','error');
+    if(!googleReconnectPrompted){googleReconnectPrompted=true;toast('Google-login udløbet. Tryk “Log ind igen” på Backup for at genoptage live sync.','error');}
+  }
 
   function liveSyncKey(provider){return`horton-live-sync-${provider}`;}
   function isLiveSyncEnabled(provider){return localStorage.getItem(liveSyncKey(provider))==='true';}
@@ -421,10 +427,10 @@
       else if(remote)cloudFingerprints[provider]=remote.fingerprint;
       const stateText=isLiveSyncEnabled(provider)?`Live sync · senest ${formatDateTime(isoNow())}`:`Synkroniseret ${formatDateTime(isoNow())}`;
       queuedForcedUploads.delete(provider);setProviderSyncState(provider,'',stateText);setStatus(sessionKey?'Synkroniseret':'Synkroniseret · ukrypteret');
-    }catch(error){retryDelay=15000;if(provider==='google'&&(!getGoogleToken()||Date.now()>=getGoogleToken().expires_at-60000))renderGoogleDriveState();setProviderSyncState(provider,'error',error.message||'Synkronisering mislykkedes.');setStatus('Sync kræver opmærksomhed','error');}
+    }catch(error){retryDelay=15000;if(provider==='google'&&(error.status===401||!getGoogleToken()||Date.now()>=getGoogleToken().expires_at-60000)){if(error.status===401)sessionStorage.removeItem('horton-google-token');promptGoogleReconnect();}else{setProviderSyncState(provider,'error',error.message||'Synkronisering mislykkedes.');setStatus('Sync kræver opmærksomhed','error');}}
     finally{cloudSyncInFlight=false;if(queuedForcedUploads.size||[...pendingCloudUploads].some(name=>isLiveSyncEnabled(name)))scheduleCloudSync(retryDelay);}
   }
-  async function syncEnabledProviders(){if(cloudSyncInFlight||document.hidden||!navigator.onLine||!vault)return;for(const provider of ['onedrive','google']){if(!isLiveSyncEnabled(provider)&&!queuedForcedUploads.has(provider))continue;if(provider==='google'&&!providerConnected(provider)){renderGoogleDriveState();setProviderSyncState('google','error','Google-login udløbet. Tryk Forbind Google-konto for at genoptage live sync.');setStatus('Google-login kræves','error');continue;}if(providerConnected(provider))await syncCloudProvider(provider,{forceUpload:queuedForcedUploads.has(provider)});}}
+  async function syncEnabledProviders(){if(cloudSyncInFlight||document.hidden||!navigator.onLine||!vault)return;for(const provider of ['onedrive','google']){if(!isLiveSyncEnabled(provider)&&!queuedForcedUploads.has(provider))continue;if(provider==='google'&&!providerConnected(provider)){promptGoogleReconnect();continue;}if(providerConnected(provider))await syncCloudProvider(provider,{forceUpload:queuedForcedUploads.has(provider)});}}
   function scheduleCloudSync(delay=700){if(!vault)return;clearTimeout(cloudSyncTimer);cloudSyncTimer=setTimeout(syncEnabledProviders,delay);}
   async function setLiveSync(provider,enabled){
     const checkbox=$(`#${provider==='onedrive'?'onedrive':'google-drive'}-live-sync`);
