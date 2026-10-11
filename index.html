@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#0a2430">
-  <meta name="description" content="Privat, krypteret anfaldsdagbog til Hortons hovedpine.">
+  <meta name="description" content="Privat anfaldsdagbog til Hortons hovedpine med valgfri lokal kryptering.">
   <meta name="color-scheme" content="light">
   <title>Horton Tracker</title>
   <link rel="manifest" href="manifest.webmanifest">
@@ -36,7 +36,7 @@
         <button class="nav-item" data-view-target="backup"><span>↥</span>Backup</button>
         <button class="nav-item" data-view-target="settings"><span>⚙</span>Indstillinger</button>
       </nav>
-      <div class="privacy-stamp"><span>◆</span><div><strong>Krypteret lokalt</strong><small>Ingen serverkonto</small></div></div>
+      <div class="privacy-stamp"><span>◆</span><div><strong id="privacy-label">Lokal boks</strong><small>Ingen serverkonto</small></div></div>
     </aside>
 
     <main id="main" tabindex="-1">
@@ -45,7 +45,7 @@
           <div>
             <p class="eyebrow" id="today-label">I DAG</p>
             <h1 id="dashboard-title">Dit mønster.<br><em>På dine præmisser.</em></h1>
-            <p class="lede">Registrér et anfald på få minutter. Dine helbredsdata bliver krypteret i denne browser.</p>
+            <p class="lede">Registrér et anfald på få minutter. Dine helbredsdata bliver på denne enhed, medmindre du vælger at sikkerhedskopiere dem.</p>
             <button class="primary large" data-view-target="entry">Registrér nyt anfald <span>→</span></button>
           </div>
           <div class="pulse-card" aria-hidden="true">
@@ -203,16 +203,23 @@
         <div class="view-heading"><div><p class="eyebrow">FLYT & DEL</p><h1 id="backup-title">Backup og eksport</h1></div></div>
         <div class="feature-grid">
           <section class="panel feature-card">
-            <div class="feature-icon">↧</div><h2>Krypteret filbackup</h2><p>Gem en kopi af hele din krypterede boks. Filen kan kun åbnes med adgangssætningen.</p>
+            <div class="feature-icon">↧</div><h2 id="backup-file-title">Ukrypteret filbackup</h2><p id="backup-file-copy">Gem en læsbar kopi af alle registreringer og profiloplysninger.</p>
             <button id="download-backup" class="primary">Hent backupfil</button>
             <label class="file-button secondary">Gendan fra fil<input id="restore-file" type="file" accept=".json,application/json" hidden></label>
           </section>
           <section class="panel feature-card onedrive-card">
-            <div class="feature-icon cloud">☁</div><h2>Personlig OneDrive</h2><p>Valgfri ende-til-ende-krypteret backup i appens egen mappe. Horton Tracker kan ikke se andre filer.</p>
+            <div class="feature-icon cloud">☁</div><h2>Personlig OneDrive</h2><p class="cloud-encryption-copy">Backup er ukrypteret, indtil du aktiverer kryptering.</p>
             <div id="onedrive-state" class="connection-state"><i></i><span>Ikke forbundet</span></div>
             <div class="button-row"><button id="onedrive-connect" class="primary">Forbind Microsoft-konto</button><button id="onedrive-disconnect" class="secondary" hidden>Afbryd</button></div>
             <div id="onedrive-actions" class="button-row" hidden><button id="onedrive-upload" class="secondary">Backup nu</button><button id="onedrive-restore" class="secondary">Gendan</button></div>
             <small id="onedrive-meta">Kræver opsætning under Indstillinger.</small>
+          </section>
+          <section class="panel feature-card onedrive-card">
+            <div class="feature-icon cloud">☁</div><h2>Personlig Google Drive</h2><p class="cloud-encryption-copy">Backup er ukrypteret, indtil du aktiverer kryptering.</p>
+            <div id="google-drive-state" class="connection-state"><i></i><span>Ikke forbundet</span></div>
+            <div class="button-row"><button id="google-drive-connect" class="primary">Forbind Google-konto</button><button id="google-drive-disconnect" class="secondary" hidden>Afbryd</button></div>
+            <div id="google-drive-actions" class="button-row" hidden><button id="google-drive-upload" class="secondary">Backup nu</button><button id="google-drive-restore" class="secondary">Gendan</button></div>
+            <small id="google-drive-meta">Kræver opsætning under Indstillinger.</small>
           </section>
         </div>
         <section class="panel export-panel">
@@ -227,10 +234,11 @@
       <section id="view-settings" class="view" aria-labelledby="settings-title">
         <div class="view-heading"><div><p class="eyebrow">KONTROL</p><h1 id="settings-title">Indstillinger</h1></div></div>
         <div class="settings-stack">
-          <section class="panel settings-card"><div><h2>Profil til rapporter</h2><p>Gemmes krypteret sammen med dine registreringer.</p></div><div class="form-grid two"><label>Navn <input id="profile-name" autocomplete="name"></label><label>Neurolog / klinik <input id="profile-clinic"></label></div><button id="save-profile" class="primary">Gem profil</button></section>
-          <section class="panel settings-card"><div><h2>Kryptering</h2><p>AES-GCM med en nøgle afledt lokalt fra din adgangssætning. Den sendes aldrig nogen steder.</p></div><button id="change-passphrase" class="secondary">Skift adgangssætning</button></section>
+          <section class="panel settings-card"><div><h2>Profil til rapporter</h2><p>Gemmes sammen med dine registreringer.</p></div><div class="form-grid two"><label>Navn <input id="profile-name" autocomplete="name"></label><label>Neurolog / klinik <input id="profile-clinic"></label></div><button id="save-profile" class="primary">Gem profil</button></section>
+          <section class="panel settings-card"><div><h2>Kryptering</h2><p id="encryption-description">Data gemmes læsbart, indtil du aktiverer kryptering.</p><strong id="encryption-state" role="status"></strong></div><button id="enable-encryption" class="primary">Aktivér kryptering</button><button id="change-passphrase" class="secondary" hidden>Skift adgangssætning</button></section>
           <section class="panel settings-card"><div><h2>Microsoft OneDrive</h2><p>Opret din egen gratis appregistrering. Kun den delegerede Graph-tilladelse <code>Files.ReadWrite.AppFolder</code> bruges.</p></div><div class="form-grid two"><label>Application (client) ID <input id="ms-client-id" spellcheck="false" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"></label><label>Tenant <select id="ms-tenant"><option value="consumers">Personlige Microsoft-konti (consumers)</option><option value="common">Personlige + arbejds-/skolekonti (common)</option><option value="organizations">Kun arbejds-/skolekonti</option></select></label></div><label>SPA-redirect-URI <div class="copy-field"><output id="redirect-uri"></output><button id="copy-redirect" class="text-button">Kopiér</button></div></label><button id="save-ms-config" class="primary">Gem OneDrive-opsætning</button><p class="settings-hint">Se README.md for trinvis appregistrering og GitHub Pages-opsætning.</p></section>
-          <section class="panel settings-card danger-zone"><div><h2>Slet alle lokale data</h2><p>Dette kan ikke fortrydes. En eventuel OneDrive-backup slettes ikke.</p></div><button id="delete-all" class="danger">Slet alt lokalt</button></section>
+          <section class="panel settings-card"><div><h2>Google Drive</h2><p>Opret et Google Cloud OAuth client ID. Kun den ikke-følsomme Drive-tilladelse <code>drive.appdata</code> bruges.</p></div><label>OAuth client ID <input id="google-client-id" spellcheck="false" placeholder="xxxxxxxxxxxx.apps.googleusercontent.com"></label><label>Autoriseret JavaScript-oprindelse <div class="copy-field"><output id="google-origin"></output><button id="copy-google-origin" class="text-button">Kopiér</button></div></label><button id="save-google-config" class="primary">Gem Google Drive-opsætning</button><p class="settings-hint">Se README.md for trinvis Google Cloud-opsætning. Der skal ikke oprettes en client secret.</p></section>
+          <section class="panel settings-card danger-zone"><div><h2>Slet alle lokale data</h2><p>Dette kan ikke fortrydes. Cloud-backups slettes ikke.</p></div><button id="delete-all" class="danger">Slet alt lokalt</button></section>
         </div>
       </section>
     </main>

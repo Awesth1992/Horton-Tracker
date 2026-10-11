@@ -1,6 +1,6 @@
 # Horton Tracker
 
-En GitHub Pages-klar, installerbar PWA til personlig registrering af Hortons-hovedpine. Appen er statisk, offline-first og uden egen server. Alle helbredsdata krypteres i browseren, før de skrives til IndexedDB eller valgfrit sikkerhedskopieres til brugerens personlige OneDrive.
+En GitHub Pages-klar, installerbar PWA til personlig registrering af Hortons-hovedpine. Appen er statisk, offline-first og uden egen server. Data gemmes lokalt uden adgangskode som standard; du kan når som helst slå kryptering til for at beskytte den eksisterende boks og kræve adgangssætning ved efterfølgende opstarter.
 
 > **Ikke medicinsk udstyr.** Horton Tracker understøtter egenregistrering og dialog med en sundhedsprofessionel. Den giver ikke diagnose eller behandlingsråd.
 
@@ -9,11 +9,12 @@ En GitHub Pages-klar, installerbar PWA til personlig registrering af Hortons-hov
 - Den komplette danske anfaldsformular fra `Hortons_Anfaldsregistrering_Kravspecifikation.docx`, inklusive alle svarmuligheder.
 - Validering af de strukturerede spørgsmål og konsistenskontrol mellem behandling og effekt.
 - Automatisk varighed fra start-/sluttid, også når et anfald går over midnat, eller direkte varighed i minutter.
-- Lokal offline lagring i IndexedDB, krypteret med AES-256-GCM.
-- Nøgleafledning med PBKDF2-HMAC-SHA-256, 310.000 iterationer og en tilfældig 128-bit salt.
+- Lokal offline lagring i IndexedDB, ukrypteret som standard eller AES-256-GCM-krypteret efter eget valg.
+- Ved aktiveret kryptering: nøgleafledning med PBKDF2-HMAC-SHA-256, 310.000 iterationer og en tilfældig 128-bit salt.
 - Historik, redigering, sletning, søgning, datofiltre og simple mønstre.
-- Krypteret backup/gendannelse som fil.
-- Valgfri krypteret backup i OneDrive-appmappen via Microsoft Graph og **kun** `Files.ReadWrite.AppFolder`.
+- Backup/gendannelse som fil, med samme krypteringsstatus som den lokale boks.
+- Valgfri OneDrive-backup via Microsoft Graph og **kun** `Files.ReadWrite.AppFolder`.
+- Valgfri Google Drive-backup i appens skjulte mappe via Drive API og **kun** `drive.appdata`.
 - CSV-eksport og udskrifts-/PDF-venlig klinikrapport til neurolog.
 - Responsivt layout til telefon, tablet og computer samt service worker/manifest til installation.
 
@@ -39,7 +40,7 @@ horton-tracker/
 └── README.md
 ```
 
-Der er ingen build-proces, npm-afhængigheder, CDN'er, cookies eller analytics.
+Der er ingen build-proces eller npm-afhængigheder. Google Identity Services indlæses fra Googles officielle script-host ved appstart; der bruges ingen cookies eller analytics.
 
 ## Hurtig lokal afprøvning
 
@@ -50,7 +51,15 @@ cd horton-tracker
 python3 -m http.server 8080
 ```
 
-Åbn `http://localhost:8080/`. `localhost` behandles som en sikker kontekst af moderne browsere. Første gang skal du oprette en adgangssætning på mindst 10 tegn.
+Åbn `http://localhost:8080/`. `localhost` behandles som en sikker kontekst af moderne browsere. Appen starter uden adgangssætning og opretter en ukrypteret lokal boks.
+
+## Kryptering
+
+Kryptering er valgfri og slået fra som standard, så appen kan startes uden adgangssætning og sikkerhedskopieres først. Data på enheden og i cloud-backups er da læsbare. Upload af ukrypterede cloud-backups kræver en ekstra bekræftelse.
+
+Vælg **Indstillinger → Aktivér kryptering** for at kryptere hele den eksisterende lokale boks med AES-256-GCM. Vælg en adgangssætning på mindst 10 tegn. Kryptering kan ikke slås fra igen; adgangssætningen kræves ved hver efterfølgende opstart. Hvis du glemmer den, kan dataene ikke åbnes.
+
+Aktivering krypterer ikke allerede uploadede cloud-backups eller tidligere downloadede filer. Kør **Backup nu** igen for at erstatte cloud-filen med den krypterede version, og slet eventuelle tidligere ukrypterede kopier.
 
 ## Udrulning på GitHub Pages
 
@@ -101,9 +110,31 @@ OneDrive er **valgfri**. Appen fungerer fuldt lokalt uden Microsoft-konto.
 4. Kontrollér, at den viste redirect-URI er registreret præcist i Entra, og gem.
 5. Åbn **Backup → Forbind Microsoft-konto**.
 6. Giv samtykke til appmappetilladelsen.
-7. Vælg **Backup nu**. Kun den allerede krypterede vault-envelope uploades.
+7. Vælg **Backup nu**. Med kryptering slået til uploades den krypterede vault-envelope; ellers uploades data ukrypteret efter en ekstra bekræftelse.
 
-Microsoft-tokens ligger kun i `sessionStorage` og forsvinder, når browsersessionen afsluttes. Adgangssætningen og krypteringsnøglen sendes aldrig til Microsoft.
+Microsoft-tokens ligger kun i `sessionStorage` og forsvinder, når browsersessionen afsluttes. Når kryptering er slået til, sendes adgangssætningen og krypteringsnøglen aldrig til Microsoft.
+
+## Opsætning af personlig Google Drive
+
+Google Drive er **valgfri**. Der bruges samme backup-record som ved OneDrive og filbackup, med kryptering afhængigt af indstillingen i appen. Google-login giver kun adgang til appens skjulte `appDataFolder`, ikke brugerens øvrige Drive-filer. Der bruges et OAuth client ID, men ingen client secret eller egen server.
+
+### 1. Opret OAuth-klient
+
+1. Opret eller vælg et projekt i [Google Cloud Console](https://console.cloud.google.com/).
+2. Aktivér **Google Drive API** for projektet.
+3. Konfigurér OAuth consent screen / Google Auth Platform med appnavn, supportmail og kontaktmail. Til privat test kan appen stå i **Testing**; tilføj din Google-konto som testbruger.
+4. Opret en OAuth Client ID med applikationstypen **Web application**.
+5. Under **Authorized JavaScript origins** tilføjes præcis oprindelse, fx `https://DIT-BRUGERNAVN.github.io`. Medtag ikke repository-stien eller afsluttende skråstreg. Til lokal test kan `http://localhost:8080` tilføjes.
+6. Kopiér Client ID (ender på `.apps.googleusercontent.com`) til **Indstillinger → Google Drive**. Der kræves ingen redirect-URI i denne popup-baserede Google Identity Services-flow.
+
+Appen anmoder kun om `https://www.googleapis.com/auth/drive.appdata`, som Google klassificerer som ikke-følsom. Denne scope begrænser appen til sin egen skjulte appmappe. Hvis Google ændrer projektets consent-krav, følg Cloud Console-vejledningen for den konkrete OAuth-klient.
+
+### 2. Forbind og sikkerhedskopiér
+
+1. Åbn **Backup → Forbind Google-konto** og godkend appens adgang til dens private appmappe.
+2. Vælg **Backup nu** for at uploade den lokale boks eller **Gendan** for at hente den. Upload er krypteret, hvis kryptering er slået til; ellers kræves en bekræftelse af, at cloud-filen bliver læsbar.
+
+Google-access-token er kortlivet og findes kun i `sessionStorage`; ved udløb kan Google bede om ny godkendelse, næste gang en backup eller gendannelse startes. Når kryptering er slået til, sendes adgangssætningen og dekrypteringsnøglen aldrig til Google. Appmappen er skjult i Drive UI, og Google sletter den, hvis brugeren fjerner appens data fra Drive.
 
 ## Daglig brug
 
@@ -112,16 +143,17 @@ Microsoft-tokens ligger kun i `sessionStorage` og forsvinder, når browsersessio
 1. Vælg **Nyt anfald**.
 2. Udfyld spørgsmål 1–10; spørgsmål 11 (noter) er valgfrit.
 3. Vælg sluttid eller direkte varighed. En sluttid før/lig med starttid tolkes som næste døgn.
-4. Gem. Hele boksen genkrypteres med en ny AES-GCM nonce og gemmes lokalt.
+4. Gem. Hele boksen gemmes lokalt, krypteret hvis kryptering er aktiveret.
 
 ### Backup og gendannelse
 
-- **Hent backupfil:** downloader den krypterede envelope. Gem filen et sikkert sted.
-- **Gendan fra fil:** erstatter den lokale boks efter bekræftelse og kræver backupfilens adgangssætning.
-- **OneDrive Backup nu:** uploader den samme krypterede envelope til appmappen.
-- **OneDrive Gendan:** henter appmappefilen og kræver dens adgangssætning.
+- **Hent backupfil:** downloader hele boksen. Filen er kun krypteret, hvis kryptering er slået til.
+- **Gendan fra fil:** erstatter den lokale boks efter bekræftelse. En krypteret fil kræver sin adgangssætning; en ukrypteret fil gør ikke.
+- **OneDrive Backup nu:** uploader boksen til appmappen, krypteret hvis kryptering er slået til.
+- **OneDrive Gendan:** henter appmappefilen. En krypteret backup kræver sin adgangssætning.
+- **Google Drive Backup nu/Gendan:** bruger kun Google Drives skjulte appmappe. Krypterede backups kræver adgangssætningen.
 
-Tag altid en ny backup efter ændring af adgangssætning. En gammel backup bruger fortsat den gamle adgangssætning.
+Tag altid en ny backup efter ændring af adgangssætning. En ældre krypteret backup bruger fortsat den gamle adgangssætning.
 
 ### Eksport til neurolog
 
@@ -148,7 +180,7 @@ Spørgsmål 1–10 skal udfyldes. Derudover gælder:
 
 - **Chrome/Edge på computer eller Android:** brug installationsikonet i adresselinjen eller appens download-ikon, når browseren tilbyder det.
 - **Safari på iPhone/iPad:** Del → **Føj til hjemmeskærm**.
-- **Offline:** Åbn appen én gang online efter deployment. App-shell og ikoner caches. Lokal registrering, historik, indblik, backupfil og eksport virker derefter offline. Microsoft-login og OneDrive kræver netforbindelse.
+- **Offline:** Åbn appen én gang online efter deployment. App-shell og ikoner caches. Lokal registrering, historik, indblik, backupfil og eksport virker derefter offline. Microsoft-login, Google-login og cloud-backup kræver netforbindelse.
 
 ## Test
 
@@ -159,14 +191,15 @@ python3 -m http.server 8080 &
 python3 tests/smoke_test.py
 ```
 
-Testen opretter en ny krypteret boks i en isoleret browserkontekst, validerer et komplet anfald, genindlæser siden og kontrollerer, at data kan dekrypteres igen.
+Testen starter uden adgangssætning, gemmer en komplet registrering ukrypteret, aktiverer kryptering og kontrollerer, at genindlæsning derefter kræver adgangssætningen, mens backupfilen ikke afslører registreringsdata.
 
 ## Drift og datatab
 
 - Browserens “ryd websitedata” sletter IndexedDB. Brug backup.
-- Adgangssætningen kan ikke gendannes. Uden den er krypterede data matematisk utilgængelige.
+- Kryptering er valgfri. Hvis den er slået til, kan adgangssætningen ikke gendannes, og uden den er krypterede data utilgængelige.
 - GitHub-repositoriet indeholder kun appkode, aldrig brugerdata.
 - En OneDrive-backup slettes ikke, når lokale data slettes.
+- En Google Drive-backup slettes ikke, når lokale data slettes.
 - Appen synkroniserer ikke automatisk mellem samtidige enheder. Brug **Backup nu** og **Gendan** bevidst for at undgå at overskrive nyere data.
 
 Se [docs/SECURITY.md](docs/SECURITY.md), [docs/PRIVACY.md](docs/PRIVACY.md), [docs/DATA-FORMAT.md](docs/DATA-FORMAT.md) og [docs/QUESTIONNAIRE.md](docs/QUESTIONNAIRE.md) for detaljer.

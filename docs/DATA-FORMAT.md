@@ -2,7 +2,7 @@
 
 ## Krypteret envelope
 
-IndexedDB, backupfiler og OneDrive bruger samme JSON-envelope:
+Når kryptering er slået til, bruger IndexedDB, backupfiler og cloud-backups samme JSON-envelope:
 
 ```json
 {
@@ -23,6 +23,25 @@ IndexedDB, backupfiler og OneDrive bruger samme JSON-envelope:
   "updatedAt": "ISO-8601"
 }
 ```
+
+## Ukrypteret record
+
+Kryptering er slået fra som standard. I denne tilstand gemmes samme datamodel i en eksplicit markeret, ukrypteret record:
+
+```json
+{
+  "format": "horton-tracker-vault-plain",
+  "version": 1,
+  "appVersion": "1.0.0",
+  "data": {
+    "schemaVersion": 1,
+    "entries": []
+  },
+  "updatedAt": "ISO-8601"
+}
+```
+
+Aktivering af kryptering konverterer den eksisterende lokale record til den krypterede envelope. Krypterede legacy-envelopes forbliver gyldige og kræver adgangssætning ved opstart. Restore af ukrypterede data ind i en allerede krypteret boks lader den lokale boks forblive krypteret.
 
 ## Dekrypteret model
 

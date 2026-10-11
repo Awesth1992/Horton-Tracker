@@ -18,10 +18,8 @@ with sync_playwright() as p:
 
     page.goto(BASE)
     page.wait_for_load_state("networkidle")
-    page.locator("#unlock-passphrase").fill(PASS)
-    page.locator("#unlock-confirm").fill(PASS)
-    page.get_by_role("button", name="Lås op").click()
     page.get_by_role("heading", name="Dit mønster. På dine præmisser.").wait_for()
+    assert "Kryptering er fra" in page.locator("#encryption-state").inner_text()
 
     page.get_by_role("button", name="Registrér nyt anfald").click()
     page.get_by_role("button", name="Gem registrering").click()
@@ -47,14 +45,35 @@ with sync_playwright() as p:
         page.get_by_role("button", name="Hent backupfil").click()
     backup_path = download_info.value.path()
     raw = Path(backup_path).read_text(encoding="utf-8")
-    assert '"format": "horton-tracker-vault"' in raw
-    assert "Smoke test" not in raw
-    assert "Rindende eller rødt øje" not in raw
+    assert '"format": "horton-tracker-vault-plain"' in raw
+    assert "Smoke test" in raw
+
+    page.locator('.rail [data-view-target="settings"]').click()
+    page.get_by_role("button", name="Aktivér kryptering").click()
+    page.locator("#secret-value").fill(PASS)
+    page.locator("#secret-confirm").fill(PASS)
+    page.get_by_role("button", name="Fortsæt").click()
+    assert "adgangssætning kræves ved opstart" in page.locator("#encryption-state").inner_text()
+    page.locator('.rail [data-view-target="backup"]').click()
+    with page.expect_download() as encrypted_download_info:
+        page.get_by_role("button", name="Hent backupfil").click()
+    encrypted_raw = Path(encrypted_download_info.value.path()).read_text(encoding="utf-8")
+    assert '"format": "horton-tracker-vault"' in encrypted_raw
+    assert "Smoke test" not in encrypted_raw
+    assert "Rindende eller rødt øje" not in encrypted_raw
 
     page.reload()
     page.locator("#unlock-passphrase").fill(PASS)
     page.get_by_role("button", name="Lås op").click()
     page.wait_for_function("document.querySelector('#dashboard-count').textContent === '1'")
+
+    page.locator('.rail [data-view-target="backup"]').click()
+    with page.expect_download() as encrypted_download_info:
+        page.get_by_role("button", name="Hent backupfil").click()
+    raw = Path(encrypted_download_info.value.path()).read_text(encoding="utf-8")
+    assert '"format": "horton-tracker-vault"' in raw
+    assert "Smoke test" not in raw
+    assert "Rindende eller rødt øje" not in raw
 
     page.locator('.rail [data-view-target="backup"]').click()
     with page.expect_download() as csv_download:

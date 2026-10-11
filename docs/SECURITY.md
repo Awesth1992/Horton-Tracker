@@ -2,7 +2,7 @@
 
 ## Beskyttede data
 
-Registreringer og rapportprofil findes kun som JSON inde i en krypteret vault-envelope. Envelope-formatet bruger:
+Kryptering er valgfri og slået fra som standard. Uden kryptering gemmes registreringer og profil læsbart i IndexedDB og backups. Når kryptering aktiveres, kræves adgangssætning ved efterfølgende opstarter, og registreringer og profil findes i en krypteret vault-envelope. Envelope-formatet bruger:
 
 - PBKDF2-HMAC-SHA-256 med 310.000 iterationer;
 - tilfældig 16-byte salt pr. adgangssætning;
@@ -14,11 +14,12 @@ Adgangssætningen og den afledte `CryptoKey` findes kun i hukommelsen, mens appe
 
 ## Lagringssteder
 
-- **IndexedDB:** kun krypteret envelope.
-- **Backupfil:** kun krypteret envelope.
-- **OneDrive:** kun krypteret envelope i appens særlige mappe.
-- **localStorage:** kun ikke-følsom Microsoft-konfiguration (client ID og tenant).
-- **sessionStorage:** kortlivede OAuth-state/PKCE-data og Microsoft-token for den aktuelle browsersession.
+- **IndexedDB:** krypteret envelope, hvis kryptering er slået til; ellers en plaintext record.
+- **Backupfil:** samme krypteringsstatus som den lokale boks.
+- **OneDrive:** samme record som lokalt; upload af plaintext kræver en bekræftelse.
+- **Google Drive:** samme record som lokalt i appens skjulte `appDataFolder`; upload af plaintext kræver en bekræftelse.
+- **localStorage:** ikke-følsom Microsoft- og Google-konfiguration (client IDs og Microsoft-tenant).
+- **sessionStorage:** kortlivede OAuth-state/PKCE-data og Microsoft-/Google-tokens for den aktuelle browsersession.
 
 ## Microsoft-identitet og Graph
 
@@ -26,22 +27,26 @@ Appen implementerer Authorization Code Flow med PKCE til en public SPA-client. D
 
 `profile` bruges kun til at vise kontoens navn fra ID-tokenet. Appen kalder ikke `/me` og kræver ikke `User.Read`.
 
+## Google-identitet og Drive
+
+Google Identity Services leverer et kortlivet access token i browseren. Appen anmoder kun om den ikke-følsomme `https://www.googleapis.com/auth/drive.appdata`-scope og bruger Drive API's skjulte `appDataFolder`. Tokenet gemmes i `sessionStorage`; der bruges ingen client secret, refresh token eller backend. Google Identity Services indlæses fra Googles officielle script-host, når appen åbner.
+
 ## Trusselsmodel og begrænsninger
 
-Modellen beskytter mod læsning af en kopieret IndexedDB-database, backupfil eller OneDrive-fil uden adgangssætningen. Den beskytter ikke mod:
+Når kryptering er slået til, beskytter modellen mod læsning af en kopieret IndexedDB-database eller backupfil uden adgangssætningen. Med kryptering slået fra beskytter appen ikke data ved kopiering af browserprofil, backupfil eller cloud-fil. Appen beskytter heller ikke mod:
 
 - malware, browserudvidelser eller kompromitteret JavaScript på en oplåst enhed;
 - en angriber, som både kan ændre den hostede appkode og få brugeren til at låse boksen op;
 - skærmbilleder, clipboard, udskrevne rapporter eller ukrypterede CSV/PDF-filer;
-- svage eller genbrugte adgangssætninger;
+- svage eller genbrugte adgangssætninger, når kryptering er slået til;
 - datatab, hvis adgangssætningen glemmes og ingen brugbar backup findes.
 
-GitHub Pages leverer HTTPS, men repository-ejeren skal beskytte GitHub-kontoen med MFA, reviewe ændringer og undgå tredjepartsscripts. Projektet bruger ingen CDN'er eller runtime-afhængigheder ud over Microsofts login- og Graph-endpoints ved valgfri OneDrive-brug.
+GitHub Pages leverer HTTPS, men repository-ejeren skal beskytte GitHub-kontoen med MFA, reviewe ændringer og undgå unødvendige tredjepartsscripts. Google Identity Services indlæses fra Googles officielle script-host; Microsofts login og Graph bruges kun ved valgfri OneDrive-backup.
 
 ## Anbefalet drift
 
-1. Brug en unik, lang adgangssætning og en password manager.
-2. Aktivér MFA på GitHub- og Microsoft-kontoen.
+1. Aktivér kryptering med en unik, lang adgangssætning, som opbevares i en password manager.
+2. Aktivér MFA på GitHub-, Microsoft- og Google-kontoen.
 3. Tag regelmæssige krypterede backups og prøv gendannelse i en separat browserprofil.
 4. Del CSV/PDF via en sundhedsorganisations godkendte kanal.
 5. Gennemgå ændringer i `app.js` og `sw.js` før deployment.
