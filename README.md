@@ -114,27 +114,15 @@ OneDrive er **valgfri**. Appen fungerer fuldt lokalt uden Microsoft-konto.
 
 Microsoft-tokens ligger kun i `sessionStorage` og forsvinder, når browsersessionen afsluttes. Når kryptering er slået til, sendes adgangssætningen og krypteringsnøglen aldrig til Microsoft.
 
-## Opsætning af personlig Google Drive
+## Google Drive
 
-Google Drive er **valgfri**. Der bruges samme backup-record som ved OneDrive og filbackup, med kryptering afhængigt af indstillingen i appen. Google-login giver kun adgang til appens skjulte `appDataFolder`, ikke brugerens øvrige Drive-filer. Der bruges et OAuth client ID, men ingen client secret eller egen server.
+Google Drive er **valgfri**. Horton Tracker bruger én OAuth-klient, som appens ejer har konfigureret i Google Cloud. Brugere skal ikke oprette et Google Cloud-projekt eller indtaste et client ID; de skal blot forbinde deres egen Google-konto fra **Backup** og give samtykke.
 
-### 1. Opret OAuth-klient
+OAuth-klienten skal have **Google Drive API** aktiveret, ekstern målgruppe og den autoriserede JavaScript-oprindelse `https://tracker.khwesth.dk`. Hvis hostingdomænet ændres, skal den nye oprindelse tilføjes i Google Cloud og client ID'et i appens `app.js` opdateres. Ved generel offentlig brug skal Google Auth Platform sættes til produktion, og konfigurationen skal opfylde Googles aktuelle krav til hjemmeside og privatlivspolitik.
 
-1. Opret eller vælg et projekt i [Google Cloud Console](https://console.cloud.google.com/).
-2. Aktivér **Google Drive API** for projektet.
-3. Konfigurér OAuth consent screen / Google Auth Platform med appnavn, supportmail og kontaktmail. Til privat test kan appen stå i **Testing**; tilføj din Google-konto som testbruger.
-4. Opret en OAuth Client ID med applikationstypen **Web application**.
-5. Under **Authorized JavaScript origins** tilføjes præcis oprindelse, fx `https://DIT-BRUGERNAVN.github.io`. Medtag ikke repository-stien eller afsluttende skråstreg. Til lokal test kan `http://localhost:8080` tilføjes.
-6. Kopiér Client ID (ender på `.apps.googleusercontent.com`) til **Indstillinger → Google Drive**. Der kræves ingen redirect-URI i denne popup-baserede Google Identity Services-flow.
+Appen anmoder kun om `https://www.googleapis.com/auth/drive.appdata`, en ikke-følsom scope, der begrænser adgangen til appens egen skjulte Drive-mappe. Selve Google-login og brugersamtykke er stadig nødvendigt. Den korte levetid på Google-access-token kan betyde, at Google beder om ny godkendelse ved en senere backup eller gendannelse.
 
-Appen anmoder kun om `https://www.googleapis.com/auth/drive.appdata`, som Google klassificerer som ikke-følsom. Denne scope begrænser appen til sin egen skjulte appmappe. Hvis Google ændrer projektets consent-krav, følg Cloud Console-vejledningen for den konkrete OAuth-klient.
-
-### 2. Forbind og sikkerhedskopiér
-
-1. Åbn **Backup → Forbind Google-konto** og godkend appens adgang til dens private appmappe.
-2. Vælg **Backup nu** for at uploade den lokale boks eller **Gendan** for at hente den. Upload er krypteret, hvis kryptering er slået til; ellers kræves en bekræftelse af, at cloud-filen bliver læsbar.
-
-Google-access-token er kortlivet og findes kun i `sessionStorage`; ved udløb kan Google bede om ny godkendelse, næste gang en backup eller gendannelse startes. Når kryptering er slået til, sendes adgangssætningen og dekrypteringsnøglen aldrig til Google. Appmappen er skjult i Drive UI, og Google sletter den, hvis brugeren fjerner appens data fra Drive.
+Backupens indhold følger appens krypteringsindstilling. Med kryptering slået fra er cloud-filen læsbar; aktiver kryptering, før du uploader helbredsdata, du vil beskytte.
 
 ## Daglig brug
 

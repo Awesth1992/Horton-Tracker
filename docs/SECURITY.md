@@ -18,7 +18,7 @@ Adgangssætningen og den afledte `CryptoKey` findes kun i hukommelsen, mens appe
 - **Backupfil:** samme krypteringsstatus som den lokale boks.
 - **OneDrive:** samme record som lokalt; upload af plaintext kræver en bekræftelse.
 - **Google Drive:** samme record som lokalt i appens skjulte `appDataFolder`; upload af plaintext kræver en bekræftelse.
-- **localStorage:** ikke-følsom Microsoft- og Google-konfiguration (client IDs og Microsoft-tenant).
+- **localStorage:** ikke-følsom Microsoft-konfiguration (client ID og tenant). Google client ID ligger offentligt i `app.js`; ingen client secret gemmes i appen.
 - **sessionStorage:** kortlivede OAuth-state/PKCE-data og Microsoft-/Google-tokens for den aktuelle browsersession.
 
 ## Microsoft-identitet og Graph
