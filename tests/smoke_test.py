@@ -75,10 +75,27 @@ with sync_playwright() as p:
     page.locator('input[name="triggers"][value="Ingen åbenlyse triggere"] + span').click()
     page.locator('input[name="treatments"][value="Tog ingen medicin"] + span').click()
     page.locator("#notes").fill("Smoke test – må ikke optræde i krypteret backup.")
-    page.get_by_role("button", name="Gem registrering").click()
-    page.locator("#dashboard-count").wait_for()
+    page.evaluate("const form = document.querySelector('#attack-form'); form.requestSubmit(); form.requestSubmit();")
+    page.wait_for_function("document.querySelector('#view-dashboard').classList.contains('active')")
     assert page.locator("#dashboard-count").inner_text() == "1"
     assert page.locator("#metric-duration").inner_text() == "50 min"
+
+    page.locator('.rail [data-view-target="history"]').click()
+    page.locator('[data-edit]').first.click()
+    page.locator('#entry-id').evaluate("element => element.value = ''")
+    page.locator('#notes').fill('Temporary delete regression')
+    page.get_by_role("button", name="Gem registrering").click()
+    page.wait_for_function("document.querySelector('#view-dashboard').classList.contains('active')")
+    assert page.locator("#dashboard-count").inner_text() == "2"
+    page.locator('.rail [data-view-target="history"]').click()
+    temporary_entry = page.locator('.entry-row').filter(has_text='Temporary delete regression')
+    temporary_entry.locator('[data-delete]').click()
+    page.locator('#confirm-dialog button[value="cancel"]').click()
+    assert temporary_entry.count() == 1
+    temporary_entry.locator('[data-delete]').click()
+    page.locator('#confirm-ok').click()
+    page.wait_for_function("document.querySelector('#dashboard-count').textContent === '1'")
+    assert temporary_entry.count() == 0
 
     page.locator('.rail [data-view-target="backup"]').click()
     with page.expect_download() as download_info:

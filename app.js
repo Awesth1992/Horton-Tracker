@@ -41,6 +41,7 @@
   let durationMode = 'end';
   let currentView = 'dashboard';
   let confirmResolver = null;
+  let entrySaveInFlight = false;
   let googleIdentityPromise = null;
   let cloudSyncTimer = null;
   let cloudSyncInFlight = false;
@@ -248,8 +249,12 @@
     box.innerHTML=`<strong>Kontrollér registreringen</strong><ul>${errors.map(([,m])=>`<li>${escapeHtml(m)}</li>`).join('')}</ul>`;box.hidden=false;errors.forEach(([id])=>{const el=$(`#${id}`);if(el)el.classList.add('invalid');});box.focus();
   }
   async function submitEntry(event){
-    event.preventDefault();const entry=collectForm(),errors=validateEntry(entry);showErrors(errors);if(errors.length)return;
-    const ix=vault.entries.findIndex(e=>e.id===entry.id);if(ix>=0)vault.entries[ix]=entry;else vault.entries.push(entry);await persistVault();resetForm();renderAll();showView('dashboard');toast(ix>=0?'Registreringen er opdateret.':'Anfaldet er gemt.');
+    event.preventDefault();if(entrySaveInFlight)return;const entry=collectForm(),errors=validateEntry(entry);showErrors(errors);if(errors.length)return;
+    const button=$('#attack-form button[type="submit"]');entrySaveInFlight=true;button.disabled=true;$('#entry-id').value=entry.id;let saved=false;
+    try{
+      const ix=vault.entries.findIndex(e=>e.id===entry.id);if(ix>=0)vault.entries[ix]=entry;else vault.entries.push(entry);await persistVault();saved=true;renderAll();showView('dashboard');resetForm();toast(ix>=0?'Registreringen er opdateret.':'Anfaldet er gemt.');
+    }catch(error){console.error(error);toast(saved?'Registreringen er gemt, men visningen kunne ikke opdateres. Genindlæs appen.':'Registreringen kunne ikke gemmes. Prøv igen.','error');}
+    finally{entrySaveInFlight=false;button.disabled=false;}
   }
   function resetForm(){
     $('#attack-form').reset();$('#entry-id').value='';$('#entry-kicker').textContent='NY REGISTRERING';$('#entry-title').textContent='Registrér anfald';$('#attack-date').value=todayISO();setDurationMode('end');$('#sleep-type-wrap').hidden=true;$('#form-errors').hidden=true;$('#notes-count').textContent='0';$('#intensity-description').textContent='Vælg den højeste intensitet under anfaldet.';updateProgress();
@@ -259,7 +264,9 @@
   }
   async function deleteEntry(id){
     if(!await confirmAction('Slet registrering?','Anfaldet fjernes permanent fra den lokale boks.'))return;
-    const deletedAt=isoNow();vault.entries=vault.entries.filter(e=>e.id!==id);vault.deletedEntries=[...(vault.deletedEntries||[]).filter(e=>e.id!==id),{id,updatedAt:deletedAt}];await persistVault();renderAll();toast('Registreringen er slettet.');
+    let saved=false;
+    try{const deletedAt=isoNow();vault.entries=vault.entries.filter(e=>e.id!==id);vault.deletedEntries=[...(vault.deletedEntries||[]).filter(e=>e.id!==id),{id,updatedAt:deletedAt}];await persistVault();saved=true;renderAll();toast('Registreringen er slettet.');}
+    catch(error){console.error(error);toast(saved?'Registreringen er slettet, men visningen kunne ikke opdateres. Genindlæs appen.':'Registreringen kunne ikke slettes. Prøv igen.','error');}
   }
   function updateProgress(){
     if(!vault)return;const e=collectForm();const done=[e.date,e.startTime,e.durationMinutes,e.side,e.intensity,e.symptoms.length,e.wokeFromSleep,(e.wokeFromSleep!=='Ja'||e.sleepType),e.triggers.length,e.treatments.length,e.treatmentEffect].filter(Boolean).length;const pct=Math.round(done/11*100);$('#form-progress').textContent=`${pct}%`;$('#form-progress-bar').style.width=`${pct}%`;
@@ -450,7 +457,7 @@
   function renderEncryptionState(){
     const encrypted=!!sessionKey;$('#encryption-state').textContent=encrypted?'Kryptering er til · adgangskode kræves ved opstart':'Kryptering er fra · data gemmes ukrypteret';$('#encryption-description').textContent=encrypted?'AES-GCM krypterer lokale data og backups. adgangskoden kræves ved hver ny opstart.':'Data gemmes læsbart på denne enhed og i cloud-backups. Aktivér kryptering for at kryptere den eksisterende boks; tidligere cloud-backups forbliver ukrypterede, indtil de sikkerhedskopieres igen.';$('#enable-encryption').hidden=encrypted;$('#change-passphrase').hidden=!encrypted;$('#lock-button').hidden=!encrypted;$('#backup-file-title').textContent=encrypted?'Krypteret filbackup':'Ukrypteret filbackup';$('#backup-file-copy').textContent=encrypted?'Gem en kopi af den krypterede boks. Filen kan kun åbnes med adgangskoden.':'Gem en læsbar kopi af alle registreringer og profiloplysninger.';$$('.cloud-encryption-copy').forEach(el=>el.textContent=encrypted?'Krypteres lokalt før upload; appen bruger kun sin private mappe.':'Cloud-filen er læsbar, indtil du aktiverer kryptering.');
   }
-  function confirmAction(title,message){return new Promise(resolve=>{confirmResolver=resolve;$('#confirm-title').textContent=title;$('#confirm-message').textContent=message;$('#confirm-dialog').showModal();});}
+  function confirmAction(title,message){return new Promise(resolve=>{confirmResolver=resolve;$('#confirm-title').textContent=title;$('#confirm-message').textContent=message;$('#confirm-dialog').returnValue='';$('#confirm-dialog').showModal();});}
 
   function bindEvents(){
     document.addEventListener('click',e=>{const target=e.target.closest('[data-view-target]');if(target){if(target.dataset.viewTarget==='entry'&&currentView!=='entry')resetForm();showView(target.dataset.viewTarget);}});
@@ -467,7 +474,7 @@
     $('#google-drive-connect').addEventListener('click',connectGoogleDrive);$('#google-drive-disconnect').addEventListener('click',disconnectGoogleDrive);$('#google-drive-upload').addEventListener('click',uploadGoogleDrive);$('#google-drive-restore').addEventListener('click',restoreGoogleDrive);
     $('#onedrive-live-sync').addEventListener('change',event=>setLiveSync('onedrive',event.target.checked));$('#google-drive-live-sync').addEventListener('change',event=>setLiveSync('google',event.target.checked));
     $('#delete-all').addEventListener('click',async()=>{if(!await confirmAction('Slet alle lokale data?','Alle registreringer, profil og den lokale boks slettes permanent.'))return;await dbDelete(VAULT_KEY);vault=null;sessionKey=null;location.reload();});
-    $('#lock-button').addEventListener('click',lockApp);$('#confirm-dialog').addEventListener('close',()=>{if(confirmResolver){confirmResolver($('#confirm-dialog').returnValue==='ok');confirmResolver=null;}});
+    $('#lock-button').addEventListener('click',lockApp);$('#confirm-dialog').addEventListener('click',event=>{const button=event.target.closest('button[value]');if(button){event.preventDefault();$('#confirm-dialog').close(button.value);}});$('#confirm-dialog').addEventListener('close',()=>{if(confirmResolver){confirmResolver($('#confirm-dialog').returnValue==='ok');confirmResolver=null;}});
     window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferredInstallPrompt=e;$('#install-button').hidden=false;});$('#install-button').addEventListener('click',async()=>{if(!deferredInstallPrompt)return;deferredInstallPrompt.prompt();await deferredInstallPrompt.userChoice;deferredInstallPrompt=null;$('#install-button').hidden=true;});window.addEventListener('appinstalled',()=>toast('Horton Tracker er installeret.'));
   }
 
